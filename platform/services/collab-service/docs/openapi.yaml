@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: Collab Service API
+  description: |
+    Real-time collaboration for AI-Native IDE Platform.
+    
+    ## Features
+    - Yjs CRDT-based document sync
+    - User presence and cursor awareness
+    - Real-time collaboration via WebSocket
+    
+    ## Note
+    Most operations happen via WebSocket through the gateway.
+    This API provides REST endpoints for session management.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8005
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Collaboration
+    description: Document collaboration
+
+paths:
+  /api/v1/collab/files/{file_id}:
+    get:
+      summary: Get collab document
+      description: Get Yjs document state for a file
+      tags:
+        - Collaboration
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Document state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      fileId:
+                        type: string
+                      yjsBinaryState:
+                        type: string
+                        format: base64
+                      lastSyncedAt:
+                        type: string
+                        format: date-time
+
+  /api/v1/collab/join:
+    post:
+      summary: Join collaboration
+      description: Join file collaboration session
+      tags:
+        - Collaboration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - fileId
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                fileId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Joined
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      awareness:
+                        type: object
+
+  /api/v1/collab/leave:
+    post:
+      summary: Leave collaboration
+      description: Leave file collaboration session
+      tags:
+        - Collaboration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fileId
+              properties:
+                fileId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Left
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for WebSocket connections
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      websocket:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          activeConnections:
+                            type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

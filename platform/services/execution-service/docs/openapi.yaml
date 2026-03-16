@@ -1,0 +1,340 @@
+openapi: 3.0.3
+info:
+  title: Execution Service API
+  description: |
+    Code execution and VM management for AI-Native IDE Platform.
+    
+    ## Features
+    - Run code in isolated Firecracker microVMs
+    - WebSocket terminal for real-time I/O
+    - Package installation (npm, pip, etc.)
+    - Execution history
+    - Pre-warmed VM pool for <125ms startup
+    
+    ## Security
+    - Multi-tenant isolation via Firecracker jailer
+    - Network bandwidth and IOPS limits
+    - AWS IMDS blocked
+    - Internal subnet blocked
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8004
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Execution
+    description: Code execution
+  - name: Terminal
+    description: Terminal WebSocket
+  - name: Packages
+    description: Package management
+
+paths:
+  /api/v1/exec/run:
+    post:
+      summary: Run code
+      description: Execute code in Firecracker VM
+      tags:
+        - Execution
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - command
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                command:
+                  type: string
+                  example: npm run dev
+                env:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  example:
+                    PORT: "3000"
+                    NODE_ENV: development
+      responses:
+        '200':
+          description: Execution started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      sessionId:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        example: running
+                      wsEndpoint:
+                        type: string
+                        example: /api/v1/exec/ws/uuid
+
+  /api/v1/exec/ws/{session_id}:
+    get:
+      summary: Terminal WebSocket
+      description: WebSocket connection for terminal I/O
+      tags:
+        - Terminal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '101':
+          description: WebSocket upgrade
+          description: Switching to WebSocket protocol
+
+  /api/v1/exec/install:
+    post:
+      summary: Install packages
+      description: Install packages in VM
+      tags:
+        - Packages
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - packageManager
+                - packages
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                packageManager:
+                  type: string
+                  enum: [npm, yarn, pnpm, pip, cargo, go]
+                  example: npm
+                packages:
+                  type: array
+                  items:
+                    type: string
+                  example: [react, lodash]
+      responses:
+        '202':
+          description: Installation started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      jobId:
+                        type: string
+                        format: uuid
+
+  /api/v1/exec/history:
+    get:
+      summary: Execution history
+      description: Get execution history for project
+      tags:
+        - Execution
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Execution history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      executions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CodeExecution'
+
+  /api/v1/exec/terminate:
+    post:
+      summary: Terminate execution
+      description: Stop running execution
+      tags:
+        - Execution
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sessionId
+              properties:
+                sessionId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Terminated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for upstream services
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      aiService:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+                          lastFailure:
+                            type: string
+                            format: date-time
+                      projectService:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                  uptime:
+                    type: integer
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    CodeExecution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        command:
+          type: string
+        status:
+          type: string
+          enum: [running, success, error, timeout, killed]
+        exitCode:
+          type: [integer, 'null']
+        durationMs:
+          type: [integer, 'null']
+        memoryUsedMb:
+          type: [integer, 'null']
+        cpuUsedPct:
+          type: [number, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: ['object', 'null']
+          nullable: true

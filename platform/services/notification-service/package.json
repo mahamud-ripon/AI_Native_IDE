@@ -1,0 +1,47 @@
+{
+  "name": "@ai-ide/notification-service",
+  "version": "1.0.0",
+  "description": "Notification Service for AI-Native IDE",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@workspace/config": "workspace:*",
+    "@workspace/database": "workspace:*",
+    "@workspace/shared-types": "workspace:*",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.2.0",
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.4.2",
+    "kafkajs": "^2.2.4",
+    "zod": "^3.24.1",
+    "pino": "^8.18.0",
+    "bullmq": "^5.0.0",
+    "aws-sdk": "^2.1500.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.19.37",
+    "@types/uuid": "^9.0.7",
+    "@types/supertest": "^6.0.2",
+    "typescript": "^5.9.3",
+    "tsx": "^4.19.3",
+    "vitest": "^1.2.0",
+    "supertest": "^7.0.0",
+    "eslint": "^8.54.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0"
+  }
+}

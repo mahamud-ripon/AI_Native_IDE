@@ -1,0 +1,15 @@
+{
+  "name": "fastapi",
+  "description": "FastAPI Python backend",
+  "category": "backend",
+  "files": {
+    "requirements.txt": "fastapi==0.104.0\nuvicorn[standard]==0.24.0\npydantic==2.5.0\nsqlalchemy==2.0.0\npsycopg2-binary==2.9.9\npython-dotenv==1.0.0",
+    "main.py": "from fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom pydantic import BaseModel\n\napp = FastAPI(title=\"My API\")\n\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=[\"*\"],\n    allow_credentials=True,\n    allow_methods=[\"*\"],\n    allow_headers=[\"*\"],\n)\n\nclass Item(BaseModel):\n    name: str\n    description: str | None = None\n    price: float\n    tax: float | None = None\n\n@app.get(\"/\")\nasync def root():\n    return {\"message\": \"Welcome to FastAPI\"}\n\n@app.get(\"/health\")\nasync def health():\n    return {\"status\": \"healthy\"}\n\n@app.post(\"/items/\")\nasync def create_item(item: Item):\n    return {\"item\": item, \"id\": 1}\n\n@app.get(\"/items/{item_id}\")\nasync def get_item(item_id: int):\n    return {\"item_id\": item_id, \"name\": \"Sample Item\"}",
+    ".env": "DATABASE_URL=postgresql://user:pass@localhost:5432/mydb\nDEBUG=true",
+    "README.md": "# FastAPI Backend\n\n## Run\n```bash\npip install -r requirements.txt\nuvicorn main:app --reload\n```"
+  },
+  "dependencies": ["fastapi", "uvicorn", "pydantic", "sqlalchemy", "psycopg2-binary"],
+  "devCommand": "uvicorn main:app --reload --port 8000",
+  "devPort": 8000,
+  "devUrl": "http://localhost:8000"
+}

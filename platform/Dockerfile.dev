@@ -1,0 +1,13 @@
+# Development Dockerfile for monorepo
+FROM node:20-alpine
+
+# Install system dependencies (including OpenSSL for Prisma)
+RUN apk add --no-cache libc6-compat python3 make g++ git curl openssl
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
+
+WORKDIR /app
+
+# The command will be overridden in docker-compose for each service
+CMD pnpm install && pnpm dev

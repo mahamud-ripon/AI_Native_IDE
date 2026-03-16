@@ -1,0 +1,163 @@
+openapi: 3.0.3
+info:
+  title: Storage Service API
+  description: |
+    File storage and retrieval for AI-Native IDE Platform.
+    
+    ## Features
+    - S3 file upload/download
+    - Storage stats
+    - Signed URLs for secure access
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8009
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Storage
+    description: File storage
+
+paths:
+  /api/v1/storage/upload:
+    post:
+      summary: Upload file
+      description: Upload file to S3
+      tags:
+        - Storage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                projectId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      key:
+                        type: string
+                      url:
+                        type: string
+                      sizeBytes:
+                        type: integer
+
+  /api/v1/storage/download/{key}:
+    get:
+      summary: Download file
+      description: Download file from S3
+      tags:
+        - Storage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content
+
+  /api/v1/storage/{key}:
+    delete:
+      summary: Delete file
+      description: Delete file from S3
+      tags:
+        - Storage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File deleted
+
+  /api/v1/storage/stats:
+    get:
+      summary: Storage stats
+      description: Get storage usage statistics
+      tags:
+        - Storage
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Storage stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      totalBytes:
+                        type: integer
+                      fileCount:
+                        type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

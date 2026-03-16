@@ -1,0 +1,12 @@
+{
+  "workflowId": "test-workflow-fallback",
+  "projectId": "test-project-001",
+  "agentName": "test_agent",
+  "stepName": "fallback-test",
+  "taskType": "plan",
+  "modelHint": "mock-llm-v1",
+  "messages": [
+    { "role": "user", "content": "Test fallback behavior" }
+  ],
+  "maxTokens": 50
+}

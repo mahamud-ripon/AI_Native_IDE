@@ -1,0 +1,13 @@
+{
+  "workflowId": "test-workflow-001",
+  "projectId": "test-project-001",
+  "agentName": "plan_agent",
+  "stepName": "test-step",
+  "taskType": "plan",
+  "modelHint": "mock-llm-v1",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Create a plan for building a todo app." }
+  ],
+  "maxTokens": 100
+}

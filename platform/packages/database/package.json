@@ -1,0 +1,36 @@
+{
+  "name": "@workspace/database",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    ".prisma/client": ".prisma/client/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset --force",
+    "clean": "rm -rf dist node_modules .prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.11.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

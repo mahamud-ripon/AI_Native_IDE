@@ -1,0 +1,14 @@
+{
+  "workflowId": "test-workflow-cache",
+  "projectId": "test-project-001",
+  "agentName": "plan_agent",
+  "stepName": "cache-test",
+  "taskType": "plan",
+  "modelHint": "mock-llm-v1",
+  "temperature": 0.1,
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Create a plan for building a todo app." }
+  ],
+  "maxTokens": 100
+}

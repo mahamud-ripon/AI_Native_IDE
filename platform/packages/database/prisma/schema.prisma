@@ -1,0 +1,1137 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+enum PlanType {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+enum OAuthProvider {
+  github
+  google
+  gitlab
+}
+
+enum OrgRole {
+  owner
+  admin
+  developer
+  viewer
+}
+
+enum ProjectVisibility {
+  private
+  public
+  org
+}
+
+enum ProjectStatus {
+  pending
+  active
+  failed_creation
+  archived
+  deleted
+}
+
+enum ProjectRole {
+  owner
+  editor
+  viewer
+}
+
+enum InviteRole {
+  editor
+  viewer
+  admin
+  developer
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  declined
+  expired
+}
+
+enum FileAction {
+  created
+  modified
+  deleted
+}
+
+enum VmStatus {
+  creating
+  active
+  hibernated
+  restoring
+  failed
+}
+
+enum IssueSeverity {
+  critical
+  high
+  medium
+  low
+  info
+}
+
+enum IssueStatus {
+  open
+  fixed
+  ignored
+  wont_fix
+}
+
+enum ExecutionStatus {
+  running
+  success
+  error
+  timeout
+  killed
+}
+
+enum DeployProvider {
+  vercel
+  railway
+  aws
+  gcp
+  azure
+}
+
+enum DeployEnv {
+  preview
+  staging
+  production
+}
+
+enum DeployStatus {
+  pending
+  building
+  deployed
+  failed
+}
+
+enum TriggerType {
+  manual_run
+  git_push
+  ai_agent_auto_deploy
+}
+
+enum SubStatus {
+  active
+  past_due
+  canceled
+  trialing
+}
+
+enum EnvType {
+  dev
+  preview
+  prod
+}
+
+enum ConversationStatus {
+  queued
+  pending
+  running
+  completed
+  failed
+  cancelled
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+  tool
+}
+
+enum WorkflowRunStatus {
+  pending
+  running
+  paused
+  completed
+  failed
+  cancelled
+}
+
+enum StepRunStatus {
+  pending
+  running
+  completed
+  failed
+  skipped
+  cancelled
+}
+
+enum CheckpointType {
+  pre_step
+  post_step
+  error
+  manual
+}
+
+// -----------------------------------------------------------------------------
+// USER & ORGANIZATIONS
+// -----------------------------------------------------------------------------
+
+model User {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String    @unique @db.VarChar(255)
+  username         String    @unique @db.VarChar(50)
+  hashedPassword   String?   @map("hashed_password") @db.Text
+  fullName         String?   @map("full_name") @db.VarChar(255)
+  avatarUrl        String?   @map("avatar_url") @db.Text
+  stripeCustomerId String?   @unique @map("stripe_customer_id") @db.VarChar(255)
+  isVerified       Boolean   @default(false) @map("is_verified")
+  isActive         Boolean   @default(true) @map("is_active")
+  mfaEnabled       Boolean   @default(false) @map("mfa_enabled")
+  mfaSecret        String?   @map("mfa_secret") @db.Text
+  lastActiveAt     DateTime? @map("last_active_at") @db.Timestamptz()
+  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz()
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  refreshTokens      RefreshToken[]
+  oauthAccounts      OAuthAccount[]
+  apiKeys            ApiKey[]
+  settings           UserSettings?
+  ownedOrgs          Organization[]
+  orgMemberships     OrgMember[]
+  ownedProjects      Project[]
+  projectMemberships ProjectCollaborator[]
+  sentInvitations    Invitation[]          @relation("InvitedBy")
+  aiConversations    AiConversation[]
+  codeExecutions     CodeExecution[]
+  deployments        Deployment[]
+  subscription       Subscription?
+  usageRecords       UsageRecord[]
+  usageDaily         UsageDaily[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  createdSecrets     ProjectSecret[]
+  aiFeedback         AiFeedback[]
+  fileVersions       FileVersion[]
+  createdTemplates   ProjectTemplate[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique @map("token_hash") @db.VarChar(64)
+  deviceInfo String?  @map("device_info") @db.Text
+  ipAddress  String?  @map("ip_address") // Intentionally String to act as INET
+  isRevoked  Boolean  @default(false) @map("is_revoked")
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz()
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model OAuthAccount {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       OAuthProvider
+  providerUserId String        @map("provider_user_id") @db.VarChar(255)
+  accessToken    String?       @map("access_token") @db.Text
+  refreshToken   String?       @map("refresh_token") @db.Text
+  tokenExpiresAt DateTime?     @map("token_expires_at") @db.Timestamptz()
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model Organization {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String   @db.VarChar(255)
+  slug                 String   @unique @db.VarChar(100)
+  ownerId              String   @map("owner_id") @db.Uuid
+  owner                User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  seatLimit            Int      @default(5) @map("seat_limit")
+  logoUrl              String?  @map("logo_url") @db.Text
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id") @db.VarChar(255)
+  plan                 PlanType  @default(FREE)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  members       OrgMember[]
+  projects      Project[]
+  invitations   Invitation[]
+  auditLogs     AuditLog[]
+  subscriptions Subscription[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  orgId     String   @map("org_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      OrgRole
+  invitedBy String?  @map("invited_by") @db.Uuid
+  joinedAt  DateTime @default(now()) @map("joined_at") @db.Timestamptz()
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, userId])
+  @@map("org_members")
+}
+
+model ApiKey {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String    @db.VarChar(255)
+  keyHash    String    @unique @map("key_hash") @db.VarChar(64)
+  keyPrefix  String    @map("key_prefix") @db.VarChar(8)
+  scopes     Json
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz()
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz()
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@map("api_keys")
+}
+
+model UserSettings {
+  userId            String   @id @map("user_id") @db.Uuid
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme             String   @default("system") @db.VarChar(20)
+  editorFontSize    Int      @default(14) @map("editor_font_size")
+  editorTabSize     Int      @default(2) @map("editor_tab_size")
+  editorKeybindings String   @default("default") @map("editor_keybindings") @db.VarChar(20)
+  aiModelPreference String?  @map("ai_model_preference") @db.VarChar(50)
+  notificationPrefs Json     @map("notification_prefs")
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("user_settings")
+}
+
+// -----------------------------------------------------------------------------
+// PROJECTS & FILES
+// -----------------------------------------------------------------------------
+
+model Project {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId      String            @map("owner_id") @db.Uuid
+  orgId        String?           @map("org_id") @db.Uuid
+  name         String            @db.VarChar(255)
+  slug         String            @db.VarChar(100)
+  description  String?           @db.Text
+  template     String?           @db.VarChar(100)
+  language     String?           @db.VarChar(50)
+  visibility   ProjectVisibility
+  status       ProjectStatus     @default(pending)
+  gitRepoUrl   String?           @map("git_repo_url") @db.Text
+  framework    String?           @db.VarChar(100)
+  lastOpenedAt DateTime?         @map("last_opened_at") @db.Timestamptz()
+  deletedAt    DateTime?         @map("deleted_at") @db.Timestamptz()
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz()
+
+  owner User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  org   Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  branches         ProjectBranch[]
+  files            ProjectFile[]
+  collaborators    ProjectCollaborator[]
+  invitations      Invitation[]
+  snapshots        ProjectSnapshot[]
+  secrets          ProjectSecret[]
+  domains          ProjectDomain[]
+  aiConversations  AiConversation[]
+  generationTasks  AiGenerationTask[]
+  collabDocuments  CollabDocument[]
+  codeIssues       CodeIssue[]
+  codeEmbeddings   CodeEmbedding[]
+  codeExecutions   CodeExecution[]
+  deployments      Deployment[]
+  workflowRuns     WorkflowRun[]
+
+  @@unique([ownerId, slug])
+  @@index([ownerId])
+  @@index([orgId])
+  @@index([slug])
+  @@index([status])
+  @@map("projects")
+}
+
+model ProjectBranch {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String   @map("project_id") @db.Uuid
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String   @db.VarChar(100)
+  isDefault     Boolean  @default(false) @map("is_default")
+  headCommitSha String?  @map("head_commit_sha") @db.VarChar(40)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  files ProjectFile[]
+
+  @@index([projectId])
+  @@map("project_branches")
+}
+
+model ProjectFile {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String        @map("project_id") @db.Uuid
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchId      String        @map("branch_id") @db.Uuid
+  branch        ProjectBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  parentId      String?       @map("parent_id") @db.Uuid
+  parent        ProjectFile?  @relation("DirectoryTree", fields: [parentId], references: [id])
+  children      ProjectFile[] @relation("DirectoryTree")
+  path          String        @db.Text
+  name          String        @db.VarChar(255)
+  contentHash   String?       @map("content_hash") @db.VarChar(64)
+  s3Key         String?       @map("s3_key") @db.Text
+  inlineContent Bytes?        @map("inline_content")
+  sizeBytes     Int?          @map("size_bytes")
+  language      String?       @db.VarChar(50)
+  isDirectory   Boolean       @default(false) @map("is_directory")
+  createdBy     String?       @map("created_by") @db.Uuid
+  lastEditedBy  String?       @map("last_edited_by") @db.Uuid
+  lastEditedAt  DateTime?     @map("last_edited_at") @db.Timestamptz()
+  deletedAt     DateTime?     @map("deleted_at") @db.Timestamptz()
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz()
+
+  versions       FileVersion[]
+  collabDocument CollabDocument?
+
+  @@index([projectId])
+  @@index([branchId])
+  @@index([parentId])
+  @@map("project_files")
+}
+
+model FileVersion {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fileId        String       @map("file_id") @db.Uuid
+  file          ProjectFile  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  savedById     String?      @map("saved_by") @db.Uuid
+  savedBy       User?        @relation(fields: [savedById], references: [id], onDelete: Cascade)
+  commitMessage String?      @map("commit_message") @db.VarChar(255)
+  contentHash   String       @map("content_hash") @db.VarChar(64)
+  s3Key         String?      @map("s3_key") @db.Text
+  inlineContent Bytes?       @map("inline_content")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([fileId])
+  @@map("file_versions")
+}
+
+model CollabDocument {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String       @map("project_id") @db.Uuid
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fileId        String       @unique @map("file_id") @db.Uuid
+  file          ProjectFile  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  yjsBinaryState Bytes       @map("yjs_binary_state")
+  lastSyncedAt  DateTime     @map("last_synced_at") @db.Timestamptz()
+
+  @@unique([projectId, fileId])
+  @@index([projectId])
+  @@index([fileId])
+  @@map("collab_documents")
+}
+
+model ProjectCollaborator {
+  projectId String      @map("project_id") @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  role      ProjectRole
+  invitedBy String?     @map("invited_by") @db.Uuid
+  joinedAt  DateTime    @default(now()) @map("joined_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@map("project_collaborators")
+}
+
+model Invitation {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String?      @map("project_id") @db.Uuid
+  orgId        String?      @map("org_id") @db.Uuid
+  invitedEmail String       @map("invited_email") @db.VarChar(255)
+  invitedById  String       @map("invited_by") @db.Uuid
+  role         InviteRole
+  token        String       @unique @db.VarChar(64)
+  status       InviteStatus
+  expiresAt    DateTime     @map("expires_at") @db.Timestamptz()
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  org       Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy User          @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([invitedEmail])
+  @@index([projectId])
+  @@index([orgId])
+  @@map("invitations")
+}
+
+model ProjectSnapshot {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String    @map("project_id") @db.Uuid
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vmId          String?   @map("vm_id") @db.VarChar(255)
+  snapshotS3Key String    @map("snapshot_s3_key") @db.Text
+  memS3Key      String?   @map("mem_s3_key") @db.Text
+  sizeBytes     BigInt?   @map("size_bytes")
+  status        VmStatus?
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@map("project_snapshots")
+}
+
+model ProjectSecret {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId        String   @map("project_id") @db.Uuid
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keyName          String   @map("key_name") @db.VarChar(255)
+  vaultReferenceId String   @unique @map("vault_reference_id") @db.Uuid
+  environment      EnvType
+  createdById      String?  @map("created_by") @db.Uuid
+  creator          User?    @relation(fields: [createdById], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@map("project_secrets")
+}
+
+model ProjectDomain {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String    @map("project_id") @db.Uuid
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domainName   String    @unique @map("domain_name") @db.VarChar(255)
+  dnsVerified  Boolean   @default(false) @map("dns_verified")
+  sslStatus    String    @default("pending") @map("ssl_status") @db.VarChar(20)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@map("project_domains")
+}
+
+model ProjectTemplate {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String   @db.VarChar(255)
+  slug             String   @unique @db.VarChar(100)
+  description      String?  @db.Text
+  thumbnailUrl     String?  @map("thumbnail_url") @db.Text
+  category         String   @db.VarChar(50)
+  language         String   @db.VarChar(50)
+  framework        String?  @db.VarChar(100)
+  fileStructureJson Json    @map("file_structure_json")
+  isPublic         Boolean  @default(true) @map("is_public")
+  useCount         Int      @default(0) @map("use_count")
+  createdById      String?  @map("created_by") @db.Uuid
+  creator          User?    @relation(fields: [createdById], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([slug])
+  @@map("project_templates")
+}
+
+// -----------------------------------------------------------------------------
+// AI & AGENTS
+// -----------------------------------------------------------------------------
+
+model AiConversation {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId     String      @map("project_id") @db.Uuid
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId        String      @map("user_id") @db.Uuid
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String?     @db.Text
+  initialPrompt String      @map("initial_prompt") @db.Text
+  agentPlan     Json?       @map("agent_plan")
+  status        ConversationStatus
+  totalTokens   Int         @default(0) @map("total_tokens")
+  totalCostUsd  Decimal?    @map("total_cost_usd") @db.Decimal(10, 6)
+  durationMs    Int?        @map("duration_ms")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  completedAt   DateTime?   @map("completed_at") @db.Timestamptz()
+
+  messages        AiMessage[]
+  generatedFiles  AiGeneratedFile[]
+  generationTasks AiGenerationTask[]
+  issues          CodeIssue[]
+
+  @@index([projectId])
+  @@map("ai_conversations")
+}
+
+model AiGenerationTask {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId  String      @map("conversation_id") @db.Uuid
+  conversation    AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  projectId       String      @map("project_id") @db.Uuid
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status          String      @default("pending") @map("status") @db.VarChar(50)
+  currentAgent    String?     @map("current_agent") @db.VarChar(50)
+  progressPercent Int?        @map("progress_percent")
+  startedAt       DateTime?   @map("started_at") @db.Timestamptz()
+  completedAt     DateTime?   @map("completed_at") @db.Timestamptz()
+
+  @@index([conversationId])
+  @@index([projectId])
+  @@map("ai_generation_tasks")
+}
+
+model AiMessage {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String         @map("conversation_id") @db.Uuid
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentName      String?        @map("agent_name") @db.VarChar(50)
+  role           MessageRole
+  content        String         @db.Text
+  metadata       Json?
+  tokensUsed     Int?           @map("tokens_used")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+
+  feedback AiFeedback[]
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+model AiFeedback {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId   String    @map("message_id") @db.Uuid
+  message     AiMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId      String    @map("user_id") @db.Uuid
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating      Int
+  userComment String?   @map("user_comment") @db.Text
+  agentName   String?   @map("agent_name") @db.VarChar(50)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([messageId])
+  @@map("ai_feedback")
+}
+
+model AiGeneratedFile {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId    String            @map("conversation_id") @db.Uuid
+  conversation      AiConversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  projectId         String            @map("project_id") @db.Uuid
+  filePath          String            @map("file_path") @db.Text
+  agentName         String            @map("agent_name") @db.VarChar(50)
+  action            FileAction?
+  diff              String?           @db.Text
+  snapshotContent   String?           @map("snapshot_content") @db.Text
+  version           Int
+  previousVersionId String?           @map("previous_version_id") @db.Uuid
+  previousVersion   AiGeneratedFile?  @relation("VersionChain", fields: [previousVersionId], references: [id])
+  nextVersions      AiGeneratedFile[] @relation("VersionChain")
+  applied           Boolean           @default(false)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([conversationId])
+  @@map("ai_generated_files")
+}
+
+model CodeIssue {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId      String          @map("project_id") @db.Uuid
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversationId String?         @map("conversation_id") @db.Uuid
+  conversation   AiConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentName      String          @map("agent_name") @db.VarChar(50)
+  severity       IssueSeverity
+  category       String          @db.VarChar(50)
+  title          String          @db.VarChar(255)
+  description    String          @db.Text
+  filePath       String?         @map("file_path") @db.Text
+  lineStart      Int?            @map("line_start")
+  lineEnd        Int?            @map("line_end")
+  suggestedFix   String?         @map("suggested_fix") @db.Text
+  status         IssueStatus
+  fixedAt        DateTime?       @map("fixed_at") @db.Timestamptz()
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@index([conversationId])
+  @@map("code_issues")
+}
+
+model CodeEmbedding {
+  id          String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String                      @map("project_id") @db.Uuid
+  project     Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  filePath    String                      @map("file_path") @db.Text
+  chunkIndex  Int                         @map("chunk_index")
+  content     String                      @db.Text
+  embedding   Unsupported("vector(1024)")
+  modelName   String                      @map("model_name") @db.VarChar(50)
+  contentHash String?                     @map("content_hash") @db.VarChar(64)
+  createdAt   DateTime                    @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@map("code_embeddings")
+}
+
+// -----------------------------------------------------------------------------
+// EXECUTION & DEPLOYMENTS
+// -----------------------------------------------------------------------------
+
+model CodeExecution {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String           @map("project_id") @db.Uuid
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId       String           @map("user_id") @db.Uuid
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vmId         String?          @map("vm_id") @db.VarChar(255)
+  command      String           @db.Text
+  stdout       String?          @db.Text
+  stderr       String?          @db.Text
+  exitCode     Int?             @map("exit_code")
+  status       ExecutionStatus?
+  durationMs   Int?             @map("duration_ms")
+  memoryUsedMb Int?             @map("memory_used_mb")
+  cpuUsedPct   Decimal?         @map("cpu_used_pct") @db.Decimal(5, 2)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@index([vmId])
+  @@index([createdAt])
+  @@index([projectId, status])
+  @@map("code_executions")
+}
+
+model Deployment {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId      String          @map("project_id") @db.Uuid
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId         String          @map("user_id") @db.Uuid
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branchName     String          @map("branch_name") @db.VarChar(100)
+  triggerType    TriggerType     @map("trigger_type")
+  provider       DeployProvider?
+  environment    DeployEnv
+  status         DeployStatus
+  url            String?         @db.Text
+  envSnapshot    Json?           @map("env_snapshot")
+  buildCommand   String?         @map("build_command") @db.Text
+  outputDir      String?         @map("output_dir") @db.VarChar(100)
+  nodeVersion    String?         @map("node_version") @db.VarChar(10)
+  buildLogS3Key  String?         @map("build_log_s3_key") @db.Text
+  commitSha      String?         @map("commit_sha") @db.VarChar(40)
+  rollbackFromId String?         @map("rollback_from_id") @db.Uuid
+  deployDuration Int?            @map("deploy_duration_ms")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  deployedAt     DateTime?       @map("deployed_at") @db.Timestamptz()
+
+  @@index([projectId])
+  @@map("deployments")
+}
+
+// -----------------------------------------------------------------------------
+// BILLING & USAGE
+// -----------------------------------------------------------------------------
+
+model Subscription {
+  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String?       @unique @map("user_id") @db.Uuid
+  user                 User?         @relation(fields: [userId], references: [id])
+  orgId                String?       @map("org_id") @db.Uuid
+  org                  Organization? @relation(fields: [orgId], references: [id])
+  stripeSubscriptionId String        @unique @map("stripe_subscription_id") @db.VarChar(255)
+  stripePriceId        String        @map("stripe_price_id") @db.VarChar(255)
+  plan                 PlanType
+  status               SubStatus
+  trialEnd             DateTime?     @map("trial_end") @db.Timestamptz()
+  cancellationReason   String?       @map("cancellation_reason") @db.Text
+  currentPeriodStart   DateTime      @map("current_period_start") @db.Timestamptz()
+  currentPeriodEnd     DateTime      @map("current_period_end") @db.Timestamptz()
+  cancelAtPeriodEnd    Boolean       @map("cancel_at_period_end")
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([orgId])
+  @@map("subscriptions")
+}
+
+model UsageRecord {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  user               User     @relation(fields: [userId], references: [id])
+  periodStart        DateTime @map("period_start") @db.Date
+  periodEnd          DateTime @map("period_end") @db.Date
+  aiTokensUsed       BigInt   @map("ai_tokens_used")
+  computeMinutes     Int      @map("compute_minutes")
+  storageGb          Decimal  @map("storage_gb") @db.Decimal(10, 3)
+  deploymentsCount   Int      @map("deployments_count")
+  projectsCount      Int      @map("projects_count")
+  collaboratorsCount Int      @map("collaborators_count")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@index([periodStart])
+  @@map("usage_records")
+}
+
+model AuditLog {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String?       @map("user_id") @db.Uuid
+  user         User?         @relation(fields: [userId], references: [id])
+  orgId        String?       @map("org_id") @db.Uuid
+  org          Organization? @relation(fields: [orgId], references: [id])
+  action       String        @db.VarChar(100)
+  resourceType String?       @map("resource_type") @db.VarChar(50)
+  resourceId   String?       @map("resource_id") @db.Uuid
+  ipAddress    String?       @map("ip_address")
+  userAgent    String?       @map("user_agent") @db.Text
+  metadata     Json?
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model UsageDaily {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  user            User     @relation(fields: [userId], references: [id])
+  date            DateTime @db.Date
+  aiRequestsCount Int      @map("ai_requests_count")
+  aiTokensUsed    BigInt   @map("ai_tokens_used")
+  computeSeconds  Int      @map("compute_seconds")
+  storageBytes    BigInt   @map("storage_bytes_added")
+  deploysCount    Int      @map("deploys_count")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@index([date])
+  @@index([userId, date])
+  @@map("usage_daily")
+}
+
+model FeatureFlag {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  flagKey            String   @unique @map("flag_key") @db.VarChar(255)
+  description        String?  @db.Text
+  isEnabledDefault   Boolean  @default(false) @map("is_enabled_default")
+  rolloutPercentage  Int?     @map("rollout_percentage")
+  enabledForUsers    String[] @map("enabled_for_users")
+  enabledForPlans    String[] @map("enabled_for_plans")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([flagKey])
+  @@map("feature_flags")
+}
+
+// -----------------------------------------------------------------------------
+// NOTIFICATIONS
+// -----------------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id])
+  type      String    @db.VarChar(50)
+  title     String    @db.VarChar(255)
+  body      String?   @db.Text
+  actionUrl String?   @map("action_url") @db.Text
+  metadata  Json?
+  isRead    Boolean   @default(false) @map("is_read")
+  readAt    DateTime? @map("read_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// WORKFLOW CHECKPOINT PERSISTENCE (Phase-2)
+// -----------------------------------------------------------------------------
+
+model WorkflowRun {
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId             String?            @map("project_id") @db.Uuid
+  project               Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Workflow definition
+  workflowName          String             @map("workflow_name") @db.VarChar(100)
+  workflowVersion       Int                @default(1) @map("workflow_version")
+  workflowDefinitionJson Json?             @map("workflow_definition_json")
+
+  // Execution state
+  status                WorkflowRunStatus  @default(pending)
+  currentStep           Int                @default(0) @map("current_step")
+  totalSteps            Int                @default(0) @map("total_steps")
+  resumeFromStep        Int?               @map("resume_from_step")
+
+  // Context (agent memory, shared state)
+  contextJson           Json?              @map("context_json")
+
+  // Trigger info
+  triggeredBy           String?            @map("triggered_by") @db.Uuid
+  triggerType           String             @default("manual") @map("trigger_type") @db.VarChar(50)
+  parentRunId           String?            @map("parent_run_id") @db.Uuid
+
+  // Timing
+  startedAt             DateTime?          @map("started_at") @db.Timestamptz()
+  completedAt           DateTime?          @map("completed_at") @db.Timestamptz()
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Metrics
+  totalTokensIn         Int                @default(0) @map("total_tokens_in")
+  totalTokensOut        Int                @default(0) @map("total_tokens_out")
+  totalCostUsd          Decimal?           @map("total_cost_usd") @db.Decimal(10, 6)
+
+  // Error tracking
+  errorMessage          String?            @map("error_message") @db.Text
+  errorStep             Int?               @map("error_step")
+
+  // Relations
+  steps                 StepRun[]
+  checkpoints           Checkpoint[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("workflow_runs")
+}
+
+model StepRun {
+  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflowRunId         String         @map("workflow_run_id") @db.Uuid
+  workflowRun           WorkflowRun    @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  // Step definition
+  stepIndex             Int            @map("step_index")
+  stepName              String         @map("step_name") @db.VarChar(100)
+  agentName             String         @map("agent_name") @db.VarChar(50)
+
+  // Execution state
+  status                StepRunStatus  @default(pending)
+  attemptNumber         Int            @default(1) @map("attempt_number")
+  retryCount            Int            @default(0) @map("retry_count")
+  maxRetries            Int            @default(3) @map("max_retries")
+
+  // Input/Output (small data only - large outputs go to object storage)
+  inputJson             Json?          @map("input_json")
+  outputJson            Json?          @map("output_json")
+  outputS3Key           String?        @map("output_s3_key") @db.Text
+
+  // Timing
+  startedAt             DateTime?      @map("started_at") @db.Timestamptz()
+  completedAt           DateTime?      @map("completed_at") @db.Timestamptz()
+  durationMs            Int?           @map("duration_ms")
+
+  // LLM metrics
+  tokensIn              Int            @default(0) @map("tokens_in")
+  tokensOut             Int            @default(0) @map("tokens_out")
+  costUsd               Decimal?       @map("cost_usd") @db.Decimal(10, 6)
+  provider              String?        @db.VarChar(50)
+  model                 String?        @db.VarChar(100)
+
+  // Tracing
+  requestId             String?        @map("request_id") @db.VarChar(100)
+
+  // Error handling
+  errorMessage          String?        @map("error_message") @db.Text
+  errorStack            String?        @map("error_stack") @db.Text
+
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@unique([workflowRunId, stepIndex])
+  @@index([workflowRunId])
+  @@index([status])
+  @@index([agentName])
+  @@index([requestId])
+  @@map("step_runs")
+}
+
+model Checkpoint {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflowRunId         String          @map("workflow_run_id") @db.Uuid
+  workflowRun           WorkflowRun     @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  // Checkpoint metadata
+  type                  CheckpointType  @default(post_step)
+  stepIndex             Int             @map("step_index")
+  stepName              String          @map("step_name") @db.VarChar(100)
+
+  // State snapshot (max 256KB - larger goes to S3)
+  stateJson             Json            @map("state_json")
+  stateS3Key            String?         @map("state_s3_key") @db.Text
+
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([workflowRunId])
+  @@index([workflowRunId, stepIndex])
+  @@index([workflowRunId, createdAt])
+  @@map("checkpoints")
+}
+
+// -----------------------------------------------------------------------------
+// EXECUTION CONTROL PLANE (Phase-6A)
+// -----------------------------------------------------------------------------
+
+enum ExecutionTaskStatus {
+  pending
+  queued
+  running
+  completed
+  failed
+  cancelled
+  timeout
+}
+
+enum ExecutionTaskPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum ExecutionEventType {
+  task_created
+  task_queued
+  task_started
+  plan_generated
+  patch_generated
+  validation_started
+  validation_completed
+  patch_applied
+  task_completed
+  task_failed
+  task_cancelled
+  progress_update
+}
+
+model ExecutionTask {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String                @map("project_id") @db.Uuid
+  workspaceId     String                @map("workspace_id") @db.VarChar(255)
+  conversationId  String?               @map("conversation_id") @db.Uuid
+  
+  // Task definition
+  instruction     String                @db.Text
+  branch          String?               @db.VarChar(100)
+  priority        ExecutionTaskPriority @default(normal)
+  
+  // Execution state
+  status          ExecutionTaskStatus   @default(pending)
+  progress        Int                   @default(0)  // 0 - 100
+  currentStage    String?               @map("current_stage") @db.VarChar(50)
+  stageMessage    String?               @map("stage_message") @db.Text
+  
+  // Retry support
+  retryCount      Int                   @default(0) @map("retry_count")
+  maxRetries      Int                   @default(2) @map("max_retries")
+  
+  // Worker ownership
+  workerId        String?               @map("worker_id") @db.VarChar(100)
+  
+  // Configuration
+  options         Json?                 @map("options")
+  timeoutMs       Int                   @default(120000) @map("timeout_ms")
+  enableRollback  Boolean               @default(true) @map("enable_rollback")
+  enableSandbox   Boolean               @default(true) @map("enable_sandbox")
+  dryRun          Boolean               @default(false) @map("dry_run")
+  
+  // Result data (split for performance)
+  summary         Json?                 @map("summary")        // Execution metadata
+  artifacts       Json?                 @map("artifacts")      // Patches, logs, outputs
+  error           Json?                 @map("error")
+  patchesApplied  Int                   @default(0) @map("patches_applied")
+  filesModified   Int                   @default(0) @map("files_modified")
+  
+  // Metrics
+  totalDurationMs Int?                  @map("total_duration_ms")
+  planningMs      Int?                  @map("planning_ms")
+  executionMs     Int?                  @map("execution_ms")
+  validationMs    Int?                  @map("validation_ms")
+  tokensUsed      Int                   @default(0) @map("tokens_used")
+  costUsd         Decimal?              @map("cost_usd") @db.Decimal(10, 6)
+  
+  // Ownership
+  createdBy       String                @map("created_by") @db.Uuid
+  agentName       String?               @map("agent_name") @db.VarChar(50)
+  workflowRunId   String?               @map("workflow_run_id") @db.Uuid
+  
+  // Timestamps
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  queuedAt        DateTime?             @map("queued_at") @db.Timestamptz()
+  startedAt       DateTime?             @map("started_at") @db.Timestamptz()
+  completedAt     DateTime?             @map("completed_at") @db.Timestamptz()
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz()
+  
+  // Snapshot for rollback
+  snapshotId      String?               @map("snapshot_id") @db.VarChar(100)
+  rollbackPerformed Boolean             @default(false) @map("rollback_performed")
+
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([createdBy])
+  @@index([createdAt])
+  @@index([projectId, status])
+  @@index([status, priority])
+  @@index([workerId])
+  @@map("execution_tasks")
+}
+
+model ExecutionTaskEvent {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId          String              @map("task_id") @db.Uuid
+  
+  // Ordering guarantee
+  sequence        Int
+  
+  // Event data
+  eventType       ExecutionEventType  @map("event_type")
+  stage           String              @db.VarChar(50)
+  message         String              @db.Text
+  progress        Int                 // 0 - 100
+  
+  // Optional payload
+  payload         Json?               @map("payload")
+  
+  // Timestamp
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([taskId])
+  @@index([taskId, sequence])
+  @@index([eventType])
+  @@map("execution_task_events")
+}

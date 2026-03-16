@@ -1,0 +1,356 @@
+openapi: 3.0.3
+info:
+  title: Billing Service API
+  description: |
+    Billing and usage management for AI-Native IDE Platform.
+    
+    ## Features
+    - Stripe checkout and customer portal
+    - Webhook handling for subscription events
+    - Usage metering with Redis atomic operations
+    - Plan enforcement (FREE, PRO, TEAM, ENTERPRISE)
+    - Quota management
+    
+    ## Authentication
+    - User endpoints: JWT Bearer token required
+    - Webhook endpoint: Stripe signature verification
+    - Internal endpoints: Service-to-service auth
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8006
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Checkout
+    description: Payment flow
+  - name: Webhooks
+    description: Stripe webhooks
+  - name: Usage
+    description: Usage tracking
+  - name: Subscription
+    description: Subscription management
+
+paths:
+  /api/v1/billing/checkout:
+    post:
+      summary: Create checkout session
+      description: Create Stripe checkout session for subscription
+      tags:
+        - Checkout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - plan
+                - successUrl
+                - cancelUrl
+              properties:
+                plan:
+                  type: string
+                  enum: [PRO, TEAM, ENTERPRISE]
+                  example: PRO
+                successUrl:
+                  type: string
+                  format: uri
+                  example: https://platform.io/billing/success?session_id={CHECKOUT_SESSION_ID}
+                cancelUrl:
+                  type: string
+                  format: uri
+                  example: https://platform.io/billing/cancel
+      responses:
+        '200':
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                        example: https://checkout.stripe.com/c/pay/cs_test_xxx
+
+  /api/v1/billing/webhooks/stripe:
+    post:
+      summary: Stripe webhook handler
+      description: Handle Stripe webhook events
+      tags:
+        - Webhooks
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          example: t=1234567890,v1=abc123...
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+  /api/v1/billing/meter:
+    post:
+      summary: Meter usage
+      description: Increment usage counter (internal service)
+      tags:
+        - Usage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - type
+                - amount
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [ai_token, vm_minute, storage_gb, api_call]
+                  example: ai_token
+                amount:
+                  type: integer
+                  example: 1000
+      responses:
+        '200':
+          description: Usage incremented
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      remaining:
+                        type: integer
+                        example: 9000
+        '429':
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: QUOTA_EXCEEDED
+
+  /api/v1/billing/usage/current:
+    get:
+      summary: Get current usage
+      description: Get current usage for authenticated user
+      tags:
+        - Usage
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/UsageData'
+
+  /api/v1/billing/subscription:
+    get:
+      summary: Get subscription
+      description: Get current subscription status
+      tags:
+        - Subscription
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Subscription'
+
+  /api/v1/billing/portal:
+    post:
+      summary: Create portal session
+      description: Create Stripe customer portal session
+      tags:
+        - Checkout
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                returnUrl:
+                  type: string
+                  format: uri
+                  example: https://platform.io/billing
+      responses:
+        '200':
+          description: Portal session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                        example: https://billing.stripe.com/session/xxx
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for Stripe API calls
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      stripe:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+                          lastFailure:
+                            type: string
+                            format: date-time
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UsageData:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [FREE, PRO, TEAM, ENTERPRISE]
+        status:
+          type: string
+          enum: [active, past_due, canceled, trialing]
+        usage:
+          type: object
+          properties:
+            aiTokensUsed:
+              type: integer
+            aiTokensLimit:
+              type: integer
+            vmComputeMinutes:
+              type: integer
+            vmComputeLimit:
+              type: integer
+            storageGb:
+              type: number
+            storageLimit:
+              type: number
+
+    Subscription:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [FREE, PRO, TEAM, ENTERPRISE]
+        status:
+          type: string
+          enum: [active, past_due, canceled, trialing]
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        cancelAtPeriodEnd:
+          type: boolean

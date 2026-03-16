@@ -1,0 +1,76 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    ".env",
+    ".env.local",
+    ".env.production"
+  ],
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "KAFKA_BROKERS",
+    "JWT_SECRET",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env", "tsconfig.json", "package.json"],
+      "outputs": ["dist/**", ".next/**", "build/**", "coverage/**"],
+      "cache": true,
+      "persistent": false
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "cache": true,
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "vitest.config.ts"],
+      "cache": true,
+      "outputs": ["coverage/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "cache": true,
+      "outputs": []
+    },
+    "clean": {
+      "cache": false,
+      "persistent": false
+    },
+    "db:generate": {
+      "cache": false,
+      "persistent": false
+    },
+    "db:push": {
+      "cache": false,
+      "persistent": false
+    },
+    "db:migrate": {
+      "cache": false,
+      "persistent": false
+    },
+    "docker:build": {
+      "cache": false,
+      "persistent": false
+    },
+    "docker:up": {
+      "cache": false,
+      "persistent": true
+    },
+    "docker:down": {
+      "cache": false,
+      "persistent": false
+    }
+  }
+}

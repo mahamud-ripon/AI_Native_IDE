@@ -1,0 +1,137 @@
+openapi: 3.0.3
+info:
+  title: Background Worker API
+  description: |
+    Internal background job processing for AI-Native IDE Platform.
+    
+    ## Note
+    This is an internal service - not exposed via API Gateway.
+    Jobs are triggered via Kafka messages or internal RPC.
+    
+    ## Features
+    - Async task processing with Celery
+    - Scheduled cron jobs
+    - Dead Letter Queue (DLQ) handling
+    - Email queue processing
+    - VM snapshot management
+    - AI scan jobs
+  version: 1.0.0
+
+servers:
+  - url: internal://localhost
+    description: Internal only
+
+tags:
+  - name: Tasks
+    description: Background tasks
+  - name: Queues
+    description: Job queues
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Worker health status
+      responses:
+        '200':
+          description: Healthy
+
+components:
+  schemas:
+    TaskResult:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, started, success, failure, retry]
+        result:
+          type: object
+        error:
+          type: [string, 'null']
+
+    EmailTask:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [welcome, password_reset, project_invite, payment_failed]
+        recipient:
+          type: string
+          format: email
+        payload:
+          type: object
+        status:
+          type: string
+          enum: [pending, sent, failed]
+
+    SnapshotTask:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        vmId:
+          type: string
+        action:
+          type: string
+          enum: [create, restore, delete]
+        status:
+          type: string
+
+    AiScanTask:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        scanType:
+          type: string
+          enum: [security, quality, dependency]
+        status:
+          type: string
+
+    DailyRollupTask:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        status:
+          type: string
+
+    CRDTGarbageCollectionTask:
+      type: object
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        fileId:
+          type: string
+          format: uuid
+        oldSize:
+          type: integer
+        newSize:
+          type: integer
+        status:
+          type: string
+
+  securitySchemes:
+    InternalAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Token

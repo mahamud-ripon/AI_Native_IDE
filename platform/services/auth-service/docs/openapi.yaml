@@ -1,0 +1,637 @@
+openapi: 3.0.3
+info:
+  title: Auth Service API
+  description: |
+    Authentication and identity management for AI-Native IDE Platform.
+    
+    ## Authentication
+    - Public endpoints: `/auth/register`, `/auth/login`, `/auth/forgot-password`
+    - Protected endpoints: Require JWT Bearer token
+    - Cookie: Refresh token stored in HttpOnly cookie
+    
+    ## Features
+    - User registration with email verification
+    - JWT-based authentication with refresh token rotation
+    - OAuth integration (GitHub, Google)
+    - MFA support (TOTP)
+    - Password reset flow
+  version: 1.0.0
+  contact:
+    name: Platform Team
+
+servers:
+  - url: http://localhost:8001
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Authentication
+    description: User login and registration
+  - name: Account
+    description: Account management and MFA
+
+paths:
+  /api/v1/auth/register:
+    parameters:
+      - $ref: '#/components/parameters/X-API-Version'
+    post:
+      summary: Register new user
+      description: Create a new user account
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - username
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                  pattern: '^[a-zA-Z0-9_]+$'
+                  example: johndoe
+                password:
+                  type: string
+                  minLength: 8
+                  example: securePassword123
+            examples:
+              valid:
+                summary: Valid registration
+                value:
+                  email: user@example.com
+                  username: johndoe
+                  password: securePassword123
+      responses:
+        '201':
+          description: User created successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: refreshToken=eyJ...; HttpOnly; Secure; SameSite=Strict; Max-Age=604800
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email or username already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/login:
+    post:
+      summary: User login
+      description: Authenticate user and get tokens
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email_or_username
+                - password
+              properties:
+                email_or_username:
+                  type: string
+                  example: user@example.com
+                password:
+                  type: string
+                  example: securePassword123
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '202':
+          description: MFA required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      mfaRequired:
+                        type: boolean
+                        example: true
+                      mfaToken:
+                        type: string
+                        example: temp_token_for_verification
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Refresh access token
+      description: Exchange refresh token for new access token
+      tags:
+        - Authentication
+      cookies:
+        refreshToken:
+          type: string
+          description: HttpOnly refresh token cookie
+      responses:
+        '200':
+          description: Token refreshed
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                        example: eyJhbGciOiJSUzI1NiIs...
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/logout:
+    post:
+      summary: Logout
+      description: Revoke current session
+      tags:
+        - Authentication
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: refreshToken=; HttpOnly; Secure; SameSite=Strict; Max-Age=0
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/auth/forgot-password:
+    post:
+      summary: Request password reset
+      description: Send password reset email
+      tags:
+        - Account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+      responses:
+        '200':
+          description: Reset email sent (always returns 200)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/auth/mfa-verify:
+    post:
+      summary: Verify MFA code
+      description: Complete MFA authentication
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mfaToken
+                - code
+              properties:
+                mfaToken:
+                  type: string
+                  example: temp_token_from_login
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  example: '123456'
+      responses:
+        '200':
+          description: MFA verified, tokens returned
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid MFA code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/me:
+    get:
+      summary: Get current user
+      description: Get authenticated user profile
+      tags:
+        - Account
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/oauth/github:
+    get:
+      summary: GitHub OAuth login
+      description: Initiate GitHub OAuth flow
+      tags:
+        - Authentication
+      responses:
+        '302':
+          description: Redirect to GitHub
+          headers:
+            Location:
+              schema:
+                type: string
+                example: https://github.com/login/oauth/authorize?client_id=xxx
+
+  /api/v1/auth/oauth/github/callback:
+    get:
+      summary: GitHub OAuth callback
+      description: Handle GitHub OAuth callback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to app with tokens
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+            Location:
+              schema:
+                type: string
+
+  /api/v1/auth/oauth/google:
+    get:
+      summary: Google OAuth login
+      description: Initiate Google OAuth flow
+      tags:
+        - Authentication
+      responses:
+        '302':
+          description: Redirect to Google
+
+  /api/v1/auth/oauth/google/callback:
+    get:
+      summary: Google OAuth callback
+      description: Handle Google OAuth callback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to app with tokens
+
+  /api/v1/auth/verify-email:
+    post:
+      summary: Verify email
+      description: Verify user email with OTP
+      tags:
+        - Account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  example: 123456
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/auth/reset-password:
+    post:
+      summary: Reset password
+      description: Reset password with token
+      tags:
+        - Account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - newPassword
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/auth/enable-mfa:
+    post:
+      summary: Enable MFA
+      description: Enable MFA for user account
+      tags:
+        - Account
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: MFA enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      secret:
+                        type: string
+                      qrCode:
+                        type: string
+
+  /api/v1/auth/disable-mfa:
+    post:
+      summary: Disable MFA
+      description: Disable MFA for user account
+      tags:
+        - Account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: MFA disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for auth operations
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      database:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            accessToken:
+              type: string
+              example: eyJhbGciOiJSUzI1NiIs...
+            user:
+              $ref: '#/components/schemas/User'
+        error:
+          type: [string, 'null']
+          nullable: true
+        trace_id:
+          type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        username:
+          type: string
+          example: johndoe
+        fullName:
+          type: [string, 'null']
+          example: John Doe
+        avatarUrl:
+          type: [string, 'null']
+          example: https://...
+        isVerified:
+          type: boolean
+          example: true
+        mfaEnabled:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          nullable: true
+        error:
+          type: [string, 'null']
+          nullable: true
+        trace_id:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        data:
+          type: ['object', 'null']
+          nullable: true
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Invalid email format
+            details:
+              type: object
+              nullable: true
+        trace_id:
+          type: string

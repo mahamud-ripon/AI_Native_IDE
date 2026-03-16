@@ -1,0 +1,379 @@
+openapi: 3.0.3
+info:
+  title: Deployment Service API
+  description: |
+    Deployment management for AI-Native IDE Platform.
+    
+    ## Features
+    - Preview and production deployments
+    - Multiple providers (Vercel, Railway, AWS, GCP, Azure)
+    - Real-time build log streaming
+    - Rollback to previous deployments
+    - Custom domain management with SSL
+    - Secret injection from Vault
+    
+    ## Providers
+    - Vercel (primary)
+    - Railway
+    - AWS Amplify
+    - GCP
+    - Azure
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8011
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Deployments
+    description: Deploy projects
+  - name: Domains
+    description: Custom domains
+
+paths:
+  /api/v1/deploy/preview:
+    post:
+      summary: Deploy preview
+      description: Deploy preview URL (ephemeral, expires in 7 days)
+      tags:
+        - Deployments
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - branch
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                branch:
+                  type: string
+                  example: feature-login
+      responses:
+        '202':
+          description: Deployment started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deploymentId:
+                        type: string
+                        format: uuid
+                      wsChannel:
+                        type: string
+                        example: deploy:uuid
+
+  /api/v1/deploy/production:
+    post:
+      summary: Deploy production
+      description: Deploy to production (requires PRO plan)
+      tags:
+        - Deployments
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - branch
+                - provider
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                branch:
+                  type: string
+                  example: main
+                provider:
+                  type: string
+                  enum: [vercel, railway, aws, gcp, azure]
+                  default: vercel
+                buildCommand:
+                  type: string
+                  example: npm run build
+                outputDir:
+                  type: string
+                  example: .next
+                nodeVersion:
+                  type: string
+                  example: "20"
+      responses:
+        '202':
+          description: Deployment started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deploymentId:
+                        type: string
+                        format: uuid
+                      wsChannel:
+                        type: string
+        '403':
+          description: PRO plan required
+
+  /api/v1/deploy/history/{project_id}:
+    get:
+      summary: Deployment history
+      description: Get deployment history for project
+      tags:
+        - Deployments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deployment history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deployments:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Deployment'
+
+  /api/v1/deploy/rollback/{deployment_id}:
+    post:
+      summary: Rollback deployment
+      description: Rollback to a previous deployment
+      tags:
+        - Deployments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Rollback started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      newDeploymentId:
+                        type: string
+                        format: uuid
+
+  /api/v1/deploy/domains:
+    post:
+      summary: Add domain
+      description: Add custom domain to project
+      tags:
+        - Domains
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - domainName
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                domainName:
+                  type: string
+                  example: www.myblog.com
+      responses:
+        '201':
+          description: Domain added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ProjectDomain'
+
+  /api/v1/deploy/domains/{id}:
+    delete:
+      summary: Remove domain
+      description: Remove custom domain
+      tags:
+        - Domains
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Domain removed
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for deployment providers
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      vercel:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        branch:
+          type: string
+        status:
+          type: string
+          enum: [pending, building, deployed, failed]
+        url:
+          type: [string, 'null']
+        commitSha:
+          type: [string, 'null']
+        provider:
+          type: [string, 'null']
+        environment:
+          type: string
+          enum: [preview, production]
+        buildLogS3Key:
+          type: [string, 'null']
+        deployDuration:
+          type: [integer, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        deployedAt:
+          type: [string, 'null']
+          format: date-time
+
+    ProjectDomain:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        domainName:
+          type: string
+        dnsVerified:
+          type: boolean
+        sslStatus:
+          type: string
+          enum: [pending, active, failed]
+        cnameTarget:
+          type: string

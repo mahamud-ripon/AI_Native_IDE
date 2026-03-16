@@ -1,0 +1,161 @@
+/**
+ * Execution Status Bar Styles
+ */
+
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--bg-primary, #252526);
+  border-top: 1px solid var(--border-color, #333);
+  font-size: 12px;
+  user-select: none;
+}
+
+/* Status Section (Left) */
+.statusSection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.statusIcon {
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.statusIcon.idle {
+  color: var(--text-muted, #666);
+}
+
+.statusIcon.running {
+  color: #4caf50;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.statusIcon.completed {
+  color: #4caf50;
+}
+
+.statusIcon.failed {
+  color: #f44336;
+}
+
+.statusLabel {
+  color: var(--text-secondary, #aaa);
+}
+
+.statusLabel.running {
+  color: var(--text-primary, #e0e0e0);
+}
+
+.statusLabel.completed {
+  color: #4caf50;
+}
+
+.statusLabel.failed {
+  color: #f44336;
+}
+
+/* Progress Container */
+.progressContainer {
+  width: 100px;
+  height: 3px;
+  background: var(--bg-secondary, #1e1e1e);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 8px;
+}
+
+.progressBar {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  border-radius: 2px;
+  transition: width 0.3s ease-out;
+}
+
+/* Task Section (Center) */
+.taskSection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.taskInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fileCount,
+.patchCount {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary, #2d2d2d);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+}
+
+.patchCount {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+/* Connection Section (Right) */
+.connectionSection {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.connectionIcon {
+  font-size: 8px;
+}
+
+.connectionIcon.connected {
+  color: #4caf50;
+}
+
+.connectionIcon.connecting {
+  color: #ff9800;
+  animation: blink 1s ease-in-out infinite;
+}
+
+.connectionIcon.disconnected {
+  color: #f44336;
+}
+
+.connectionLabel {
+  font-size: 11px;
+  color: var(--text-muted, #666);
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}

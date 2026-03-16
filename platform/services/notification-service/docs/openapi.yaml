@@ -1,0 +1,177 @@
+openapi: 3.0.3
+info:
+  title: Notification Service API
+  description: |
+    Push notifications and email for AI-Native IDE Platform.
+    
+    ## Features
+    - In-app notifications with read status
+    - Real-time push via WebSocket
+    - Email queue with retry logic
+    - Notification batching for AI operations
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8007
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Notifications
+    description: User notifications
+
+paths:
+  /api/v1/notifications:
+    get:
+      summary: List notifications
+      description: Get user notifications
+      tags:
+        - Notifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      notifications:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+
+  /api/v1/notifications/{id}:
+    put:
+      summary: Mark as read
+      description: Mark notification as read
+      tags:
+        - Notifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      isRead:
+                        type: boolean
+
+  /api/v1/notifications/read-all:
+    put:
+      summary: Mark all as read
+      description: Mark all notifications as read
+      tags:
+        - Notifications
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      updatedCount:
+                        type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: [string, 'null']
+        actionUrl:
+          type: [string, 'null']
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time

@@ -1,0 +1,15 @@
+{
+  "name": "node-express",
+  "description": "Node.js + Express backend",
+  "category": "backend",
+  "files": {
+    "package.json": "{\n  \"name\": \"my-express-api\",\n  \"version\": \"1.0.0\",\n  \"type\": \"module\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"start\": \"node index.js\",\n    \"dev\": \"node --watch index.js\"\n  },\n  \"dependencies\": {\n    \"express\": \"^4.18.0\",\n    \"cors\": \"^2.8.5\",\n    \"dotenv\": \"^16.3.0\"\n  }\n}",
+    "index.js": "import express from 'express';\nimport cors from 'cors';\n\nconst app = express();\nconst PORT = process.env.PORT || 3001;\n\napp.use(cors());\napp.use(express.json());\n\napp.get('/', (req, res) => {\n  res.json({ message: 'Welcome to Express API' });\n});\n\napp.get('/health', (req, res) => {\n  res.json({ status: 'healthy' });\n});\n\napp.post('/api/items', (req, res) => {\n  const item = { id: 1, ...req.body };\n  res.json(item);\n});\n\napp.get('/api/items/:id', (req, res) => {\n  res.json({ id: parseInt(req.params.id), name: 'Sample Item' });\n});\n\napp.listen(PORT, () => {\n  console.log(`Server running on port ${PORT}`);\n});",
+    ".env": "PORT=3001\nNODE_ENV=development",
+    "README.md": "# Express API\n\n## Run\n```bash\nnpm install\nnpm run dev\n```"
+  },
+  "dependencies": ["express", "cors", "dotenv"],
+  "devCommand": "npm run dev",
+  "devPort": 3001,
+  "devUrl": "http://localhost:3001"
+}

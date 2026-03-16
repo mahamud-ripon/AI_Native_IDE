@@ -1,0 +1,731 @@
+openapi: 3.0.3
+info:
+  title: Project Service API
+  description: |
+    Project and file management for AI-Native IDE Platform.
+    
+    ## Features
+    - Project CRUD operations
+    - File tree management with nested structure
+    - Collaborator management
+    - Environment secrets (HashiCorp Vault)
+    - Project templates
+    - Git repository integration
+    
+    ## Storage Strategy
+    - Files < 64KB: Stored in PostgreSQL inline_content
+    - Files >= 64KB: Stored in S3, reference in s3_key
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8002
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Projects
+    description: Project CRUD operations
+  - name: Files
+    description: File management
+  - name: Collaborators
+    description: Team collaboration
+  - name: Secrets
+    description: Environment variables
+  - name: Templates
+    description: Project templates
+
+paths:
+  /api/v1/projects:
+    get:
+      summary: List user projects
+      description: Get all projects owned by or shared with the user
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: visibility
+          in: query
+          schema:
+            type: string
+            enum: [private, public, org]
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      projects:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Project'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Create project
+      description: Create a new project
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                  pattern: '^[a-zA-Z0-9-]+$'
+                  example: my-ecommerce-app
+                description:
+                  type: string
+                  maxLength: 500
+                template:
+                  type: string
+                  enum: [nextjs, fastapi, blank, react, vue, python, node, go, rust]
+                  example: nextjs
+                visibility:
+                  type: string
+                  enum: [private, public, org]
+                  default: private
+                orgId:
+                  type: [string, 'null']
+                  format: uuid
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+
+  /api/v1/projects/{id}:
+    get:
+      summary: Get project
+      description: Get project details by ID
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '404':
+          description: Project not found
+
+    put:
+      summary: Update project
+      description: Update project details
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                visibility:
+                  type: string
+                  enum: [private, public, org]
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+
+    delete:
+      summary: Delete project
+      description: Permanently delete a project
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Project deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/projects/{id}/tree:
+    get:
+      summary: Get file tree
+      description: Get project files as nested JSON tree
+      tags:
+        - Files
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: branch
+          in: query
+          schema:
+            type: string
+            default: main
+      responses:
+        '200':
+          description: File tree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/FileTreeNode'
+
+  /api/v1/projects/{id}/files:
+    post:
+      summary: Create file
+      description: Create a new file or folder
+      tags:
+        - Files
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - path
+                - isDirectory
+              properties:
+                path:
+                  type: string
+                  example: src/utils/helper.ts
+                isDirectory:
+                  type: boolean
+                  example: false
+                content:
+                  type: string
+                  description: File content (required for files)
+      responses:
+        '201':
+          description: File created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ProjectFile'
+
+  /api/v1/projects/{id}/files/{file_id}:
+    put:
+      summary: Update file
+      description: Update file content
+      tags:
+        - Files
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+      responses:
+        '200':
+          description: File updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      contentHash:
+                        type: string
+
+    delete:
+      summary: Delete file
+      description: Delete a file
+      tags:
+        - Files
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: File deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/v1/projects/{id}/secrets:
+    post:
+      summary: Add secret
+      description: Add environment variable (stored in Vault)
+      tags:
+        - Secrets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - keyName
+                - value
+                - environment
+              properties:
+                keyName:
+                  type: string
+                  example: DATABASE_URL
+                value:
+                  type: string
+                  example: postgres://...
+                environment:
+                  type: string
+                  enum: [dev, preview, prod]
+      responses:
+        '201':
+          description: Secret added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ProjectSecret'
+
+  /api/v1/projects/{id}/collaborators:
+    get:
+      summary: List collaborators
+      description: Get project collaborators
+      tags:
+        - Collaborators
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Collaborators list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      collaborators:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Collaborator'
+
+    post:
+      summary: Invite collaborator
+      description: Invite user to project
+      tags:
+        - Collaborators
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - role
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                  enum: [owner, editor, viewer]
+      responses:
+        '201':
+          description: Invitation sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Invitation'
+
+  /api/v1/templates:
+    get:
+      summary: List templates
+      description: Get available project templates
+      tags:
+        - Templates
+      responses:
+        '200':
+          description: Templates list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      templates:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ProjectTemplate'
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for upstream services
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      storageService:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: [string, 'null']
+        visibility:
+          type: string
+          enum: [private, public, org]
+        template:
+          type: [string, 'null']
+        framework:
+          type: [string, 'null']
+        language:
+          type: [string, 'null']
+        lastOpenedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        owner:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            username:
+              type: string
+
+    ProjectResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Project'
+        trace_id:
+          type: string
+
+    FileTreeNode:
+      type: object
+      properties:
+        id:
+          type: [string, 'null']
+          format: uuid
+        name:
+          type: string
+        isDirectory:
+          type: boolean
+        language:
+          type: [string, 'null']
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileTreeNode'
+
+    ProjectFile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        path:
+          type: string
+        language:
+          type: [string, 'null']
+        isDirectory:
+          type: boolean
+
+    ProjectSecret:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        keyName:
+          type: string
+        environment:
+          type: string
+
+    Collaborator:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        username:
+          type: string
+        role:
+          type: string
+          enum: [owner, editor, viewer]
+        joinedAt:
+          type: string
+          format: date-time
+
+    Invitation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        invitedEmail:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined, expired]
+
+    ProjectTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        category:
+          type: string
+        language:
+          type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: ['object', 'null']
+          nullable: true

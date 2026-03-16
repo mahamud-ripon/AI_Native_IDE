@@ -1,0 +1,657 @@
+openapi: 3.0.3
+info:
+  title: AI Service API
+  description: |
+    Multi-agent AI orchestration for AI-Native IDE Platform.
+    
+    ## Features
+    - Prompt-to-app generation with 8 specialized agents
+    - Server-Sent Events (SSE) for real-time progress
+    - Agent retry and cancellation
+    - Conversation history and versioning
+    - Code issue tracking
+    
+    ## Agents
+    - PM Agent: Requirements & PRD
+    - Architect Agent: System design
+    - Backend Agent: API & DB
+    - Frontend Agent: UI components
+    - DevOps Agent: Docker & CI/CD
+    - QA Agent: Test generation
+    - Security Agent: Vulnerability scanning
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8003
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Generation
+    description: AI code generation
+  - name: Conversations
+    description: AI conversation history
+
+paths:
+  /api/v1/ai/generate:
+    post:
+      summary: Start AI generation
+      description: |
+        Start multi-agent code generation. Returns immediately with conversation ID.
+        Progress streamed via SSE.
+      tags:
+        - Generation
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - projectId
+                - prompt
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                  example: 550e8400-e29b-41d4-a716-446655440000
+                prompt:
+                  type: string
+                  example: Build an ecommerce website with user login, product catalog, shopping cart, and checkout
+                agents:
+                  type: array
+                  items:
+                    type: string
+                    enum: [pm, architect, backend, frontend, devops, qa, security]
+                  default: [pm, architect, backend, frontend, devops, qa, security]
+      responses:
+        '202':
+          description: Generation started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      conversationId:
+                        type: string
+                        format: uuid
+                      wsChannel:
+                        type: string
+                        example: ai:uuid
+        '429':
+          description: Rate limit or quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/ai/stream/{conversation_id}:
+    get:
+      summary: SSE stream for generation progress
+      description: Server-Sent Events stream for real-time agent progress
+      tags:
+        - Generation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    example: '{"agent": "pm", "status": "running", "action": "Analyzing requirements..."}'
+
+  /api/v1/ai/conversations:
+    get:
+      summary: List conversations
+      description: Get AI conversation history
+      tags:
+        - Conversations
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Conversations list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      conversations:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AiConversation'
+
+  /api/v1/ai/conversations/{id}:
+    get:
+      summary: Get conversation
+      description: Get conversation details with messages and generated files
+      tags:
+        - Conversations
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/AiConversationDetail'
+
+  /api/v1/ai/retry/{conversation_id}:
+    post:
+      summary: Retry failed agent
+      description: Retry specific failed agents
+      tags:
+        - Generation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agents:
+                  type: array
+                  items:
+                    type: string
+                    enum: [pm, architect, backend, frontend, devops, qa, security]
+                  example: [backend]
+      responses:
+        '202':
+          description: Retry started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      conversationId:
+                        type: string
+
+  /api/v1/ai/cancel/{conversation_id}:
+    post:
+      summary: Cancel generation
+      description: Cancel running AI generation
+      tags:
+        - Generation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: cancelled
+
+  /api/v1/ai/status/{conversation_id}:
+    get:
+      summary: Get generation status
+      description: Get current status of AI generation
+      tags:
+        - Generation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Generation status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/GenerationStatus'
+
+  /api/v1/ai/providers/status:
+    get:
+      summary: AI provider status
+      description: Get status of all configured AI providers
+      tags:
+        - Providers
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Provider statuses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      anthropic:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            enum: [active, degraded, down]
+                          latency:
+                            type: integer
+                          errorRate:
+                            type: number
+                      openai:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            enum: [active, degraded, down]
+                          latency:
+                            type: integer
+                      google:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            enum: [active, degraded, down]
+
+  /api/v1/ai/providers/fallback:
+    post:
+      summary: Trigger provider fallback
+      description: Manually trigger fallback to next available provider
+      tags:
+        - Providers
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - conversationId
+                - reason
+              properties:
+                conversationId:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+                  example: primary_provider_error
+      responses:
+        '200':
+          description: Fallback triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      newProvider:
+                        type: string
+                      conversationId:
+                        type: string
+
+  /api/v1/health/circuit-breaker:
+    get:
+      summary: Circuit breaker status
+      description: Get circuit breaker state for AI providers
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      anthropic:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+                          failureCount:
+                            type: integer
+                      openai:
+                        type: object
+                        properties:
+                          state:
+                            type: string
+                            enum: [closed, open, half_open]
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+  /api/v1/ai/context/stats:
+    get:
+      summary: Context usage stats
+      description: Get token usage and context pruning stats for a conversation
+      tags:
+        - Context
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Context stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      currentTokens:
+                        type: integer
+                      maxTokens:
+                        type: integer
+                      pruneCount:
+                        type: integer
+                      lastPrunedAt:
+                        type: string
+                        format: date-time
+
+  /api/v1/ai/context/prune:
+    post:
+      summary: Prune context
+      description: Manually trigger context pruning for a conversation
+      tags:
+        - Context
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - conversationId
+                - strategy
+              properties:
+                conversationId:
+                  type: string
+                  format: uuid
+                strategy:
+                  type: string
+                  enum: [oldest, summary, hybrid]
+      responses:
+        '200':
+          description: Context pruned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      previousTokens:
+                        type: integer
+                      newTokens:
+                        type: integer
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AiConversation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: [string, 'null']
+        initialPrompt:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        totalTokens:
+          type: integer
+        totalCostUsd:
+          type: number
+        durationMs:
+          type: [integer, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    AiConversationDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: [string, 'null']
+        initialPrompt:
+          type: string
+        status:
+          type: string
+        totalTokens:
+          type: integer
+        totalCostUsd:
+          type: number
+        durationMs:
+          type: integer
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AiMessage'
+        generatedFiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeneratedFile'
+
+    AiMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agentName:
+          type: [string, 'null']
+        role:
+          type: string
+          enum: [user, assistant, system, tool]
+        content:
+          type: string
+        tokensUsed:
+          type: [integer, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    GeneratedFile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filePath:
+          type: string
+        agentName:
+          type: string
+        action:
+          type: [string, 'null']
+          enum: [created, modified, deleted]
+        version:
+          type: integer
+        applied:
+          type: boolean
+
+    GenerationStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        progressPercent:
+          type: integer
+        currentAgent:
+          type: [string, 'null']
+        agentsCompleted:
+          type: array
+          items:
+            type: string
+        agentsFailed:
+          type: array
+          items:
+            type: string
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string

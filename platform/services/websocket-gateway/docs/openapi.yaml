@@ -1,0 +1,222 @@
+openapi: 3.0.3
+info:
+  title: WebSocket Gateway API
+  description: |
+    Real-time WebSocket gateway for AI-Native IDE Platform.
+    
+    ## Connection
+    - URL: `wss://ws.platform.io/gateway`
+    - Auth: JWT in query string or initial auth message
+    
+    ## Features
+    - Multiplexed channels for different data types
+    - Binary and text message support
+    - Real-time collaboration (Yjs)
+    - Terminal I/O
+    - AI agent progress streaming
+    - Push notifications
+    - Build log streaming
+    - Live preview HMR
+    - User presence
+    
+    ## Protocol
+    Client sends JSON messages to subscribe to channels.
+    Server pushes JSON/binary messages on subscribed channels.
+  version: 1.0.0
+
+servers:
+  - url: wss://localhost:3011
+    description: Local development
+  - url: wss://ws.platform.io
+    description: Production
+
+tags:
+  - name: Connection
+    description: WebSocket connection
+  - name: Channels
+    description: Channel subscriptions
+
+paths:
+  /gateway:
+    get:
+      summary: WebSocket connection
+      description: Upgrade to WebSocket connection
+      parameters:
+        - name: token
+          in: query
+          schema:
+            type: string
+          description: JWT token for authentication
+      responses:
+        '101':
+          description: Switching Protocols
+
+components:
+  schemas:
+    WsMessage:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [subscribe, unsubscribe, auth, ping, pong]
+        channel:
+          type: string
+          description: Channel name (e.g., collab:projectId:fileId)
+        payload:
+          type: object
+          description: Message payload
+
+    ChannelMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+        type:
+          type: string
+          enum: [update, presence, error, connected]
+        payload:
+          oneOf:
+            - type: string
+            - type: object
+            - type: array
+
+    CollabMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: collab:projectId:fileId
+        type:
+          type: string
+          example: update
+        payload:
+          type: string
+          format: base64
+          description: Yjs binary update
+
+    TerminalMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: terminal:sessionId
+        type:
+          type: string
+          enum: [data, resize, close]
+        payload:
+          type: string
+          description: Terminal output (UTF-8)
+
+    AiProgressMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: ai:conversationId
+        type:
+          type: string
+        payload:
+          type: object
+          properties:
+            agent:
+              type: string
+              example: pm
+            status:
+              type: string
+              enum: [pending, running, completed, failed]
+            action:
+              type: string
+              example: Analyzing requirements...
+            output:
+              type: object
+
+    NotificationMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: notifications:userId
+        type:
+          type: string
+          example: notification
+        payload:
+          type: object
+          properties:
+            id:
+              type: string
+            type:
+              type: string
+            title:
+              type: string
+            body:
+              type: string
+
+    DeployLogMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: deploy:deploymentId
+        type:
+          type: string
+          enum: [log, error, complete]
+        payload:
+          type: string
+          description: Build log line
+
+    PresenceMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: presence:projectId
+        type:
+          type: string
+          enum: [join, leave, cursor]
+        payload:
+          type: object
+          properties:
+            userId:
+              type: string
+            username:
+              type: string
+            color:
+              type: string
+            cursor:
+              type: object
+              properties:
+                fileId:
+                  type: string
+                line:
+                  type: integer
+                column:
+                  type: integer
+
+    PreviewHmrMessage:
+      type: object
+      properties:
+        channel:
+          type: string
+          example: preview.hmr:projectId
+        type:
+          type: string
+          enum: [connected, update, error]
+        payload:
+          type: object
+          properties:
+            type:
+              type: string
+            path:
+              type: string
+            action:
+              type: string
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+externalDocs:
+  description: WebSocket Protocol Documentation
+  url: https://docs.platform.io/websocket-protocol

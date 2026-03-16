@@ -1,0 +1,407 @@
+PS D:\AI-Native-IDE\platform> & "C:\Users\RIPON MAHMUD\AppData\Roaming\npm\pnpm.cmd" dev
+
+> @ai-native-ide/platform@0.1.0 dev D:\AI-Native-IDE\platform
+> turbo dev --concurrency=20
+
+╭───────────────────────────────────────────────────────────────────────────╮
+│                                                                           │
+│                    Update available v2.8.16 ≫ v2.8.17                     │
+│    Changelog: https://github.com/vercel/turborepo/releases/tag/v2.8.17    │
+│           Run "pnpm dlx @turbo/codemod@latest update" to update           │
+│                                                                           │
+│          Follow @turborepo for updates: https://x.com/turborepo           │
+╰───────────────────────────────────────────────────────────────────────────╯
+• turbo 2.8.16
+• Packages in scope: @ai-ide/ai-service, @ai-ide/analytics-service, @ai-ide/api-gateway, @ai-ide/auth-service, @ai-ide/background-worker, @ai-ide/billing-service, @ai-ide/collab-service, @ai-ide/deployment-service, @ai-ide/execution-service, @ai-ide/notification-service, @ai-ide/project-service, @ai-ide/search-service, @ai-ide/storage-service, @ai-ide/websocket-gateway, @workspace/config, @workspace/database, @workspace/shared-types, @workspace/ui, admin-panel, ide-client, marketing-site
+• Running dev in 21 packages
+• Remote caching disabled
+marketing-site:dev: cache bypass, force executing a0998ae4551944be
+ide-client:dev: cache bypass, force executing b38cb779adb144a7
+admin-panel:dev: cache bypass, force executing 0ca9e09ba5384c18
+@workspace/shared-types:build: cache hit, replaying logs 3936bfe5545173b7
+@workspace/shared-types:build:
+@workspace/shared-types:build: > @workspace/shared-types@1.0.0 build D:\AI-Native-IDE\platform\packages\shared-types
+@workspace/shared-types:build: > tsc
+@workspace/shared-types:build:
+@workspace/database:build: cache hit, replaying logs 92770d2d0a614cf9
+@workspace/database:build:
+@workspace/database:build: > @workspace/database@1.0.0 build D:\AI-Native-IDE\platform\packages\database
+@workspace/database:build: > tsc
+@workspace/database:build:
+@workspace/config:build: cache hit, replaying logs 1483d92540ba037b
+@workspace/config:build:
+@workspace/config:build: > @workspace/config@1.0.0 build D:\AI-Native-IDE\platform\packages\config
+@workspace/config:build: > tsc
+@workspace/config:build:
+@ai-ide/notification-service:dev: cache bypass, force executing a9f7136fd0411c40
+@ai-ide/websocket-gateway:dev: cache bypass, force executing c686ad068af5a1c1
+@ai-ide/api-gateway:dev: cache bypass, force executing d2967504a42cc82d
+@ai-ide/collab-service:dev: cache bypass, force executing c68b6cf55b81f8b5
+@ai-ide/billing-service:dev: cache bypass, force executing b27d23f7106e14e6
+@ai-ide/deployment-service:dev: cache bypass, force executing eafae20f30250225
+@ai-ide/analytics-service:dev: cache bypass, force executing 1387294e312accfb
+@ai-ide/execution-service:dev: cache bypass, force executing 9e983abbba9d3ef1
+@ai-ide/project-service:dev: cache bypass, force executing 0a6ce03828139b3d
+@ai-ide/auth-service:dev: cache bypass, force executing 49442d04f9ef1501
+@ai-ide/ai-service:dev: cache bypass, force executing d4eac7b3a208e162
+@ai-ide/storage-service:dev: cache bypass, force executing ab1cd3d97fae5eb5
+@ai-ide/search-service:dev: cache bypass, force executing 09419e72e220fa70
+@ai-ide/background-worker:dev: cache bypass, force executing 6f75ab74e884d13a
+@ai-ide/api-gateway:dev:
+@ai-ide/api-gateway:dev: > @ai-ide/api-gateway@1.0.0 dev D:\AI-Native-IDE\platform\services\api-gateway
+@ai-ide/api-gateway:dev: > tsx watch src/index.ts
+@ai-ide/api-gateway:dev:
+@ai-ide/project-service:dev:
+@ai-ide/project-service:dev: > @ai-ide/project-service@1.0.0 dev D:\AI-Native-IDE\platform\services\project-service
+ide-client:dev:
+@ai-ide/search-service:dev:
+@ai-ide/deployment-service:dev:
+@ai-ide/deployment-service:dev: > @ai-ide/deployment-service@1.0.0 dev D:\AI-Native-IDE\platform\services\deployment-service
+@ai-ide/deployment-service:dev: > tsx watch src/index.ts
+@ai-ide/deployment-service:dev:
+@ai-ide/collab-service:dev:
+@ai-ide/collab-service:dev: > @ai-ide/collab-service@1.0.0 dev D:\AI-Native-IDE\platform\services\collab-service
+@ai-ide/collab-service:dev: > tsx watch src/index.ts
+@ai-ide/search-service:dev: > @ai-ide/search-service@1.0.0 dev D:\AI-Native-IDE\platform\services\search-service
+@ai-ide/search-service:dev: > tsx watch src/index.ts
+@ai-ide/search-service:dev:
+@ai-ide/storage-service:dev:
+@ai-ide/storage-service:dev: > @ai-ide/storage-service@1.0.0 dev D:\AI-Native-IDE\platform\services\storage-service
+@ai-ide/storage-service:dev: > tsx watch src/index.ts
+@ai-ide/storage-service:dev:
+@ai-ide/project-service:dev: > tsx watch src/index.ts
+@ai-ide/project-service:dev:
+@ai-ide/websocket-gateway:dev:
+@ai-ide/websocket-gateway:dev: > @ai-ide/websocket-gateway@1.0.0 dev D:\AI-Native-IDE\platform\services\websocket-gateway
+@ai-ide/websocket-gateway:dev: > tsx watch src/index.ts
+@ai-ide/websocket-gateway:dev:
+@ai-ide/collab-service:dev:
+@ai-ide/billing-service:dev:
+@ai-ide/billing-service:dev: > @ai-ide/billing-service@1.0.0 dev D:\AI-Native-IDE\platform\services\billing-service
+@ai-ide/billing-service:dev: > tsx watch src/index.ts
+@ai-ide/billing-service:dev:
+marketing-site:dev:
+marketing-site:dev: > marketing-site@0.1.0 dev D:\AI-Native-IDE\platform\apps\marketing-site
+marketing-site:dev: > next dev
+marketing-site:dev:
+admin-panel:dev:
+admin-panel:dev: > admin-panel@1.0.0 dev D:\AI-Native-IDE\platform\apps\admin
+admin-panel:dev: > next dev
+admin-panel:dev:
+@ai-ide/execution-service:dev:
+ide-client:dev: > ide-client@0.1.0 dev D:\AI-Native-IDE\platform\apps\ide
+@ai-ide/notification-service:dev:
+@ai-ide/execution-service:dev: > @ai-ide/execution-service@1.0.0 dev D:\AI-Native-IDE\platform\services\execution-service
+@ai-ide/execution-service:dev: > tsx watch src/index.ts
+@ai-ide/execution-service:dev:
+ide-client:dev: > vite
+@ai-ide/notification-service:dev: > @ai-ide/notification-service@1.0.0 dev D:\AI-Native-IDE\platform\services\notification-service
+@ai-ide/notification-service:dev: > tsx watch src/index.ts
+@ai-ide/notification-service:dev:
+ide-client:dev:
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev: > @ai-ide/background-worker@1.0.0 dev D:\AI-Native-IDE\platform\services\background-worker
+@ai-ide/background-worker:dev: > tsx watch src/index.ts
+@ai-ide/background-worker:dev:
+@ai-ide/analytics-service:dev:
+@ai-ide/analytics-service:dev: > @ai-ide/analytics-service@1.0.0 dev D:\AI-Native-IDE\platform\services\analytics-service
+@ai-ide/analytics-service:dev: > tsx watch src/index.ts
+@ai-ide/analytics-service:dev:
+@ai-ide/ai-service:dev:
+@ai-ide/ai-service:dev: > @ai-ide/ai-service@1.0.0 dev D:\AI-Native-IDE\platform\services\ai-service
+@ai-ide/ai-service:dev: > tsx watch src/index.ts
+@ai-ide/ai-service:dev:
+@ai-ide/auth-service:dev:
+@ai-ide/auth-service:dev: > @ai-ide/auth-service@1.0.0 dev D:\AI-Native-IDE\platform\services\auth-service
+@ai-ide/auth-service:dev: > tsx watch src/index.ts
+@ai-ide/auth-service:dev:
+ide-client:dev: Port 5173 is in use, trying another one...
+ide-client:dev:
+ide-client:dev:   VITE v5.4.21  ready in 4560 ms
+ide-client:dev:
+ide-client:dev:   ➜  Local:   http://localhost:5174/
+ide-client:dev:   ➜  Network: use --host to expose
+marketing-site:dev:  ⚠ Port 3000 is in use, trying 3001 instead.
+@ai-ide/deployment-service:dev: {"level":"WARN","timestamp":"2026-03-16T13:34:32.373Z","logger":"kafkajs","message":"KafkaJS v2.0.0 switched default partitioner. To retain the same partitioning behavior as in previous versions, create the producer with the option \"createPartitioner: Partitioners.LegacyPartitioner\". See the migration guide at https://kafka.js.org/docs/migration-guide-v2.0.0#producer-new-default-partitioner for details. Silence this warning by setting the environment variable \"KAFKAJS_NO_PARTITIONER_WARNING=1\""}
+admin-panel:dev:  ⚠ Port 3000 is in use, trying 3001 instead.
+marketing-site:dev:   ▲ Next.js 14.2.35
+marketing-site:dev:   - Local:        http://localhost:3001
+marketing-site:dev:
+marketing-site:dev:  ✓ Starting...
+admin-panel:dev:  ⚠ Port 3001 is in use, trying 3002 instead.
+@ai-ide/deployment-service:dev: [Deployment] Starting service...
+@ai-ide/websocket-gateway:dev: [13:34:32] INFO: Starting WebSocket Gateway...
+@ai-ide/websocket-gateway:dev:     port: 8012
+@ai-ide/websocket-gateway:dev:     env: "development"
+@ai-ide/deployment-service:dev: [Redis] Connected
+@ai-ide/execution-service:dev: {"level":"WARN","timestamp":"2026-03-16T13:34:33.613Z","logger":"kafkajs","message":"KafkaJS v2.0.0 switched default partitioner. To retain the same partitioning behavior as in previous versions, create the producer with the option \"createPartitioner: Partitioners.LegacyPartitioner\". See the migration guide at https://kafka.js.org/docs/migration-guide-v2.0.0#producer-new-default-partitioner for details. Silence this warning by setting the environment variable \"KAFKAJS_NO_PARTITIONER_WARNING=1\""}
+admin-panel:dev:   ▲ Next.js 15.0.0
+admin-panel:dev:   - Local:        http://localhost:3002
+admin-panel:dev:
+admin-panel:dev:  ✓ Starting...
+@ai-ide/execution-service:dev: [Execution] Starting service...
+@ai-ide/execution-service:dev: Error: Redis is already connecting/connected
+@ai-ide/execution-service:dev:     at D:\AI-Native-IDE\platform\node_modules\.pnpm\ioredis@5.10.0\node_modules\ioredis\built\Redis.js:108:24
+@ai-ide/execution-service:dev:     at new Promise (<anonymous>)
+@ai-ide/execution-service:dev:     at EventEmitter.connect (D:\AI-Native-IDE\platform\node_modules\.pnpm\ioredis@5.10.0\node_modules\ioredis\built\Redis.js:104:25)
+@ai-ide/execution-service:dev:     at main (D:\AI-Native-IDE\platform\services\execution-service\src\index.ts:15:15)
+@ai-ide/execution-service:dev:     at dotenv (D:\AI-Native-IDE\platform\services\execution-service\src\index.ts:36:1)
+@ai-ide/execution-service:dev:     at Object.<anonymous> (D:\AI-Native-IDE\platform\services\execution-service\src\index.ts:36:27)
+@ai-ide/execution-service:dev:     at Module._compile (node:internal/modules/cjs/loader:1706:14)
+@ai-ide/execution-service:dev:     at Object.transformer (D:\AI-Native-IDE\platform\node_modules\.pnpm\tsx@4.21.0\node_modules\tsx\dist\register-D46fvsV_.cjs:3:1104)
+@ai-ide/execution-service:dev:     at Module.load (node:internal/modules/cjs/loader:1441:32)
+@ai-ide/execution-service:dev:     at Function._load (node:internal/modules/cjs/loader:1263:12)
+@ai-ide/execution-service:dev: [Redis] Connected
+@ai-ide/api-gateway:dev: {"level":30,"time":1773668074378,"pid":11940,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://0.0.0.0:8000"}
+@ai-ide/api-gateway:dev: {"level":30,"time":1773668074381,"pid":11940,"hostname":"DESKTOP-NDP0KJF","msg":"🚪 API Gateway running at http://0.0.0.0:8000"}
+@ai-ide/collab-service:dev: [Collab] Starting service...
+@ai-ide/collab-service:dev: [Collab] Environment: development
+@ai-ide/deployment-service:dev: [Kafka] Consumer connected
+@ai-ide/collab-service:dev: [Redis] Connected
+@ai-ide/deployment-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:34.623Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"deployment-service"}
+@ai-ide/background-worker:dev: [Background Worker] 🚀 Starting Background Worker...
+@ai-ide/background-worker:dev: [Background Worker]    Node Environment: development
+@ai-ide/websocket-gateway:dev: [13:34:34] INFO: Redis connected successfully
+@ai-ide/background-worker:dev: [Background Worker]    Redis URL: redis://localhost:6379
+@ai-ide/background-worker:dev: [Background Worker] 🔌 Verifying connections...
+@ai-ide/background-worker:dev: ✅ Connected to Redis
+@ai-ide/project-service:dev: {"level":"info","time":1773668074984,"pid":15116,"hostname":"DESKTOP-NDP0KJF","context":"storage-service","msg":"Storage service initialized"}
+@ai-ide/collab-service:dev: [Collab] Redis connected
+@ai-ide/websocket-gateway:dev: [13:34:35] INFO: Redis subscriber connected
+@ai-ide/analytics-service:dev: [Redis] Connected
+@ai-ide/billing-service:dev: {"level":"WARN","timestamp":"2026-03-16T13:34:35.309Z","logger":"kafkajs","message":"KafkaJS v2.0.0 switched default partitioner. To retain the same partitioning behavior as in previous versions, create the producer with the option \"createPartitioner: Partitioners.LegacyPartitioner\". See the migration guide at https://kafka.js.org/docs/migration-guide-v2.0.0#producer-new-default-partitioner for details. Silence this warning by setting the environment variable \"KAFKAJS_NO_PARTITIONER_WARNING=1\""}
+@ai-ide/websocket-gateway:dev: [13:34:35] INFO: Kafka consumer connected
+@ai-ide/websocket-gateway:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:35.424Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"websocket-gateway-file-events"}
+@ai-ide/billing-service:dev: [Billing] Starting service...
+@ai-ide/billing-service:dev: [Billing] Environment: development
+@ai-ide/billing-service:dev: [Billing] Port: 8006
+@ai-ide/collab-service:dev: [Kafka] Consumer connected
+@ai-ide/billing-service:dev: [Redis] Connected
+@ai-ide/collab-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:35.722Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"collab-service"}
+@ai-ide/background-worker:dev: prisma:error
+@ai-ide/background-worker:dev: Invalid `prisma.$queryRaw()` invocation:
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev: [Background Worker] Health check failed:
+@ai-ide/background-worker:dev: Authentication failed against database server at `localhost`, the provided database credentials for `user` are not valid.
+@ai-ide/background-worker:dev: Invalid `prisma.$queryRaw()` invocation:
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev: Please make sure to provide valid database credentials for the database server at `localhost`.
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev: Authentication failed against database server at `localhost`, the provided database credentials for `user` are not valid.
+@ai-ide/background-worker:dev:
+@ai-ide/background-worker:dev: Please make sure to provide valid database credentials for the database server at `localhost`.
+@ai-ide/background-worker:dev: [Background Worker] ❌ Failed to start Background Worker: Health check failed - cannot start worker
+@ai-ide/analytics-service:dev: [Kafka] Consumer connected
+@ai-ide/analytics-service:dev: [Kafka] Subscribed to user.created
+@ai-ide/analytics-service:dev: [Kafka] Subscribed to project.created
+@ai-ide/project-service:dev: {"level":"WARN","timestamp":"2026-03-16T13:34:36.415Z","logger":"kafkajs","message":"KafkaJS v2.0.0 switched default partitioner. To retain the same partitioning behavior as in previous versions, create the producer with the option \"createPartitioner: Partitioners.LegacyPartitioner\". See the migration guide at https://kafka.js.org/docs/migration-guide-v2.0.0#producer-new-default-partitioner for details. Silence this warning by setting the environment variable \"KAFKAJS_NO_PARTITIONER_WARNING=1\""}
+@ai-ide/auth-service:dev: [JWT] Using ephemeral keys - for production, set JWT_PRIVATE_KEY and JWT_PUBLIC_KEY env vars
+@ai-ide/analytics-service:dev: [Kafka] Subscribed to subscription.updated
+@ai-ide/analytics-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:36.445Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"analytics-service"}
+@ai-ide/billing-service:dev: [Redis] Metering script registered: ecdba3b4
+@ai-ide/billing-service:dev: [Billing] Redis connected
+@ai-ide/auth-service:dev: [JWT] Public Key for Gateway (copy to api-gateway .env):
+@ai-ide/auth-service:dev: -----BEGIN PUBLIC KEY-----
+@ai-ide/auth-service:dev: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyimaBdPp1t+EmuWYunZ7
+@ai-ide/auth-service:dev: 99mamy9S6p1vhzmzXq7jtOfg2tRyGftmQWAWo1kEcyOosEyZhg3HjfMzk5+Zwcoi
+@ai-ide/auth-service:dev: d2LrJqjuS0OZK1G/IzDJIJC2AppzFemFdrgVkJmfBlFchfltwlV5KClPHxzQkz5k
+@ai-ide/auth-service:dev: EGFk4rkqK8V0iopH/LRiLVPgnebqEnV8asBlN+XHI0qpNP6qW+m/JMZArM3cI9PJ
+@ai-ide/auth-service:dev: zvfUUPNFwB8BUpAfE+Daf6L95hAsuREUHAmYe3YCfX01A8XEEyyPl6LsOA9y+gvH
+@ai-ide/auth-service:dev: k/0gadCRZ/OSyaSNN70LlZ9Xbc/TDoXLH0cOfjfNIA0fgpxjNZ/T2+B0dbHB+KeA
+@ai-ide/auth-service:dev: fQIDAQAB
+@ai-ide/auth-service:dev:
+@ai-ide/auth-service:dev: -----END PUBLIC KEY-----
+@ai-ide/billing-service:dev: [Kafka Publisher] Connected
+@ai-ide/project-service:dev: {"level":"DEBUG","timestamp":"2026-03-16T13:34:36.680Z","logger":"kafkajs","message":"[Connection] Connecting","broker":"localhost:9092","clientId":"project-service","ssl":false,"sasl":false}
+@ai-ide/project-service:dev: {"level":"warn","time":1773668075292,"pid":15116,"hostname":"DESKTOP-NDP0KJF","context":"vault-service","msg":"Vault service disabled - using mock implementation"}
+@ai-ide/project-service:dev: {"level":"info","time":1773668076440,"pid":15116,"hostname":"DESKTOP-NDP0KJF","context":"kafka-service","msg":"Kafka service initialized"}
+@ai-ide/billing-service:dev: [Kafka Consumer] Connected
+@ai-ide/billing-service:dev: [Kafka Consumer] Subscribed to user.created
+@ai-ide/billing-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:36.826Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"billing-service"}
+@ai-ide/project-service:dev: {"level":"DEBUG","timestamp":"2026-03-16T13:34:36.857Z","logger":"kafkajs","message":"[Connection] Request ApiVersions(key: 18, version: 2)","broker":"localhost:9092","clientId":"project-service","correlationId":0,"expectResponse":true,"size":29}
+@ai-ide/project-service:dev: {"level":"DEBUG","timestamp":"2026-03-16T13:34:36.911Z","logger":"kafkajs","message":"[Connection] Response ApiVersions(key: 18, version: 2)","broker":"localhost:9092","clientId":"project-service","correlationId":0,"size":374,"data":{"errorCode":0,"apiVersions":[{"apiKey":0,"minVersion":0,"maxVersion":9},{"apiKey":1,"minVersion":0,"maxVersion":15},{"apiKey":2,"minVersion":0,"maxVersion":8},{"apiKey":3,"minVersion":0,"maxVersion":12},{"apiKey":4,"minVersion":0,"maxVersion":7},{"apiKey":5,"minVersion":0,"maxVersion":4},{"apiKey":6,"minVersion":0,"maxVersion":8},{"apiKey":7,"minVersion":0,"maxVersion":3},{"apiKey":8,"minVersion":0,"maxVersion":8},{"apiKey":9,"minVersion":0,"maxVersion":8},{"apiKey":10,"minVersion":0,"maxVersion":4},{"apiKey":11,"minVersion":0,"maxVersion":9},{"apiKey":12,"minVersion":0,"maxVersion":4},{"apiKey":13,"minVersion":0,"maxVersion":5},{"apiKey":14,"minVersion":0,"maxVersion":5},{"apiKey":15,"minVersion":0,"maxVersion":5},{"apiKey":16,"minVersion":0,"maxVersion":4},{"apiKey":17,"minVersion":0,"maxVersion":1},{"apiKey":18,"minVersion":0,"maxVersion":3},{"apiKey":19,"minVersion":0,"maxVersion":7},{"apiKey":20,"minVersion":0,"maxVersion":6},{"apiKey":21,"minVersion":0,"maxVersion":2},{"apiKey":22,"minVersion":0,"maxVersion":4},{"apiKey":23,"minVersion":0,"maxVersion":4},{"apiKey":24,"minVersion":0,"maxVersion":3},{"apiKey":25,"minVersion":0,"maxVersion":3},{"apiKey":26,"minVersion":0,"maxVersion":3},{"apiKey":27,"minVersion":0,"maxVersion":1},{"apiKey":28,"minVersion":0,"maxVersion":3},{"apiKey":29,"minVersion":0,"maxVersion":3},{"apiKey":30,"minVersion":0,"maxVersion":3},{"apiKey":31,"minVersion":0,"maxVersion":3},{"apiKey":32,"minVersion":0,"maxVersion":4},{"apiKey":33,"minVersion":0,"maxVersion":2},{"apiKey":34,"minVersion":0,"maxVersion":2},{"apiKey":35,"minVersion":0,"maxVersion":4},{"apiKey":36,"minVersion":0,"maxVersion":2},{"apiKey":37,"minVersion":0,"maxVersion":3},{"apiKey":38,"minVersion":0,"maxVersion":3},{"apiKey":39,"minVersion":0,"maxVersion":2},{"apiKey":40,"minVersion":0,"maxVersion":2},{"apiKey":41,"minVersion":0,"maxVersion":3},{"apiKey":42,"minVersion":0,"maxVersion":2},{"apiKey":43,"minVersion":0,"maxVersion":2},{"apiKey":44,"minVersion":0,"maxVersion":1},{"apiKey":45,"minVersion":0,"maxVersion":0},{"apiKey":46,"minVersion":0,"maxVersion":0},{"apiKey":47,"minVersion":0,"maxVersion":0},{"apiKey":48,"minVersion":0,"maxVersion":1},{"apiKey":49,"minVersion":0,"maxVersion":1},{"apiKey":50,"minVersion":0,"maxVersion":0},{"apiKey":51,"minVersion":0,"maxVersion":0},{"apiKey":56,"minVersion":0,"maxVersion":3},{"apiKey":57,"minVersion":0,"maxVersion":1},{"apiKey":58,"minVersion":0,"maxVersion":0},{"apiKey":60,"minVersion":0,"maxVersion":0},{"apiKey":61,"minVersion":0,"maxVersion":0},{"apiKey":65,"minVersion":0,"maxVersion":0},{"apiKey":66,"minVersion":0,"maxVersion":0},{"apiKey":67,"minVersion":0,"maxVersion":0}],"throttleTime":0,"clientSideThrottleTime":0}}
+@ai-ide/project-service:dev: {"level":"DEBUG","timestamp":"2026-03-16T13:34:36.912Z","logger":"kafkajs","message":"[Broker] Verified support for SaslAuthenticate","broker":"localhost:9092","supportAuthenticationProtocol":true}
+@ai-ide/project-service:dev: {"level":"info","time":1773668076913,"pid":15116,"hostname":"DESKTOP-NDP0KJF","context":"kafka-service","msg":"Connected to Kafka broker"}
+@ai-ide/project-service:dev: {"level":"info","time":1773668077088,"pid":15116,"hostname":"DESKTOP-NDP0KJF","context":"server","msg":"Project service running on port 8002"}
+@ai-ide/auth-service:dev: {"level":"WARN","timestamp":"2026-03-16T13:34:37.177Z","logger":"kafkajs","message":"KafkaJS v2.0.0 switched default partitioner. To retain the same partitioning behavior as in previous versions, create the producer with the option \"createPartitioner: Partitioners.LegacyPartitioner\". See the migration guide at https://kafka.js.org/docs/migration-guide-v2.0.0#producer-new-default-partitioner for details. Silence this warning by setting the environment variable \"KAFKAJS_NO_PARTITIONER_WARNING=1\""}
+@ai-ide/storage-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:37.382Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"storage-service"}
+@ai-ide/auth-service:dev: {"level":30,"time":1773668077409,"pid":15444,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://0.0.0.0:3001"}
+@ai-ide/auth-service:dev: {"level":30,"time":1773668077410,"pid":15444,"hostname":"DESKTOP-NDP0KJF","msg":"🔐 Auth Service running at http://0.0.0.0:3001"}
+@ai-ide/auth-service:dev: ✅ Connected to Kafka cluster
+@ai-ide/project-service:dev: [19:34:37.087] INFO (15116): Server listening at http://0.0.0.0:8002
+@ai-ide/storage-service:dev: [13:34:36] INFO: Starting storage service...
+@ai-ide/storage-service:dev:     port: 8009
+@ai-ide/storage-service:dev:     env: "development"
+@ai-ide/storage-service:dev: [13:34:37] INFO: Redis connected successfully
+@ai-ide/storage-service:dev: [13:34:37] INFO: Kafka consumer connected
+@ai-ide/storage-service:dev:     brokers: [
+@ai-ide/storage-service:dev:       "localhost:9092"
+@ai-ide/storage-service:dev:     ]
+@ai-ide/deployment-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:38.043Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"deployment-service","memberId":"deployment-service-206907e3-7851-4159-b58c-d70f4830f3e5","leaderId":"deployment-service-206907e3-7851-4159-b58c-d70f4830f3e5","isLeader":true,"memberAssignment":{"project.deleted":[0]},"groupProtocol":"RoundRobinAssigner","duration":3417}
+@ai-ide/deployment-service:dev: [DomainVerifier] Starting domain verification worker
+@ai-ide/deployment-service:dev: [Deployment] Service running on port 8011
+@ai-ide/notification-service:dev: [Notification] Starting service...
+@ai-ide/notification-service:dev: Error: Redis is already connecting/connected
+@ai-ide/notification-service:dev:     at D:\AI-Native-IDE\platform\node_modules\.pnpm\ioredis@5.10.0\node_modules\ioredis\built\Redis.js:108:24
+@ai-ide/notification-service:dev:     at new Promise (<anonymous>)
+@ai-ide/notification-service:dev:     at EventEmitter.connect (D:\AI-Native-IDE\platform\node_modules\.pnpm\ioredis@5.10.0\node_modules\ioredis\built\Redis.js:104:25)
+@ai-ide/notification-service:dev:     at main (D:\AI-Native-IDE\platform\services\notification-service\src\index.ts:14:15)
+@ai-ide/notification-service:dev:     at dotenv (D:\AI-Native-IDE\platform\services\notification-service\src\index.ts:30:1)
+@ai-ide/notification-service:dev:     at Object.<anonymous> (D:\AI-Native-IDE\platform\services\notification-service\src\index.ts:30:27)
+@ai-ide/notification-service:dev:     at Module._compile (node:internal/modules/cjs/loader:1706:14)
+@ai-ide/notification-service:dev:     at Object.transformer (D:\AI-Native-IDE\platform\node_modules\.pnpm\tsx@4.21.0\node_modules\tsx\dist\register-D46fvsV_.cjs:3:1104)
+@ai-ide/notification-service:dev:     at Module.load (node:internal/modules/cjs/loader:1441:32)
+@ai-ide/notification-service:dev:     at Function._load (node:internal/modules/cjs/loader:1263:12)
+@ai-ide/notification-service:dev: (node:4392) NOTE: The AWS SDK for JavaScript (v2) has reached end-of-support.
+@ai-ide/notification-service:dev: It will no longer receive updates or releases.
+@ai-ide/notification-service:dev:
+@ai-ide/notification-service:dev: Please migrate your code to use AWS SDK for JavaScript (v3).
+@ai-ide/notification-service:dev: For more information, check the blog post at https://a.co/cUPnyil
+@ai-ide/notification-service:dev: (Use `node --trace-warnings ...` to show where the warning was created)
+@ai-ide/notification-service:dev: [Redis] Connected
+@ai-ide/search-service:dev: [13:34:38] INFO: Starting search-service...
+@ai-ide/search-service:dev:     context: "search-service"
+@ai-ide/ai-service:dev: [RedisStreamBridge] Publisher connected
+@ai-ide/ai-service:dev: [RedisStreamBridge] Subscriber connected
+@ai-ide/ai-service:dev: [RedisStreamBridge] Initialized
+@ai-ide/collab-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:39.299Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"collab-service","memberId":"collab-service-2e88b80d-f6e3-41e7-9556-1d6a2056013b","leaderId":"collab-service-2e88b80d-f6e3-41e7-9556-1d6a2056013b","isLeader":true,"memberAssignment":{"project.deleted":[0],"file.deleted":[0],"project.archived":[0]},"groupProtocol":"RoundRobinAssigner","duration":3574}
+@ai-ide/collab-service:dev: [PostgresSync] Starting sync worker
+@ai-ide/collab-service:dev: {"level":30,"time":1773668079383,"pid":12184,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://0.0.0.0:8008"}
+@ai-ide/collab-service:dev: [Collab] Service running on port 8008
+@ai-ide/ai-service:dev: [RedisStreamBridge] Subscribed to channel: agent:stream
+@ai-ide/ai-service:dev: [RedisStreamBridge] Subscribed to channel: workflow:event
+@ai-ide/ai-service:dev: [WebSocketGateway] Initialized
+@ai-ide/ai-service:dev: [Main] WebSocket gateway initialized
+@ai-ide/ai-service:dev: [Main] Workflow definitions registered
+@ai-ide/ai-service:dev: [WorkflowWorker] Starting...
+@ai-ide/ai-service:dev: [WorkflowWorker] Connected to Kafka
+@ai-ide/ai-service:dev: [WorkflowWorker] Subscribed to topics
+@ai-ide/ai-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:39.507Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"workflow-worker"}
+@ai-ide/analytics-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:39.707Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"analytics-service","memberId":"analytics-service-d8823335-edc1-4ae9-b416-c8acfcb99232","leaderId":"analytics-service-d8823335-edc1-4ae9-b416-c8acfcb99232","isLeader":true,"memberAssignment":{"user.created":[0],"project.created":[0],"subscription.updated":[0]},"groupProtocol":"RoundRobinAssigner","duration":3258}
+@ai-ide/analytics-service:dev: {"level":30,"time":1773668079739,"pid":15044,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://[::1]:8007"}
+@ai-ide/analytics-service:dev: Analytics Service running on port 8007
+@ai-ide/analytics-service:dev: {"level":30,"time":1773668079744,"pid":15044,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://127.0.0.1:8007"}
+@ai-ide/billing-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:40.103Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"billing-service","memberId":"billing-service-consumer-1fe6e7aa-8b59-4210-8fe1-42854a8c7bc2","leaderId":"billing-service-consumer-1fe6e7aa-8b59-4210-8fe1-42854a8c7bc2","isLeader":true,"memberAssignment":{"user.created":[0]},"groupProtocol":"RoundRobinAssigner","duration":3274}
+@ai-ide/billing-service:dev: [Rollup Worker] Starting daily rollup worker
+@ai-ide/billing-service:dev: [Rollup Worker] Running rollup for 2026-03-16
+@ai-ide/billing-service:dev: {"level":30,"time":1773668080158,"pid":3440,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://0.0.0.0:8006"}
+@ai-ide/billing-service:dev: [Billing] Service running on port 8006
+@ai-ide/billing-service:dev: [Rollup Worker] No usage data to rollup
+@ai-ide/websocket-gateway:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:40.408Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"websocket-gateway-file-events","memberId":"websocket-gateway-4c00a269-cfb1-4f17-8ece-17d5826e83e4","leaderId":"websocket-gateway-3d98f1a6-3182-4d35-9e9e-1039ed785493","isLeader":false,"memberAssignment":{},"groupProtocol":"RoundRobinAssigner","duration":4979}
+@ai-ide/storage-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:40.542Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"storage-service","memberId":"storage-service-b2d7ba11-02b3-4376-95ee-d14a15a0bd83","leaderId":"storage-service-b2d7ba11-02b3-4376-95ee-d14a15a0bd83","isLeader":true,"memberAssignment":{"project.deleted":[0]},"groupProtocol":"RoundRobinAssigner","duration":3156}
+@ai-ide/storage-service:dev: {"level":30,"time":1773668080642,"pid":13004,"hostname":"DESKTOP-NDP0KJF","msg":"Server listening at http://0.0.0.0:8009"}
+@ai-ide/storage-service:dev: [13:34:40] INFO: Kafka consumer started
+@ai-ide/storage-service:dev: [13:34:40] INFO: Storage service running on port 8009
+@ai-ide/websocket-gateway:dev: [13:34:40] INFO: Kafka file events consumer started
+@ai-ide/websocket-gateway:dev: [13:34:40] INFO: Heartbeat manager started
+@ai-ide/websocket-gateway:dev: [13:34:40] INFO: WebSocket Gateway running on port 8012
+marketing-site:dev:  ✓ Ready in 10.1s
+admin-panel:dev:  ✓ Ready in 9.2s
+@ai-ide/ai-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:42.587Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"workflow-worker","memberId":"ai-service-workflow-worker-68e142fe-e23f-4f78-a48c-fa7bcef80092","leaderId":"ai-service-workflow-worker-68e142fe-e23f-4f78-a48c-fa7bcef80092","isLeader":true,"memberAssignment":{"workflow.start":[0],"workflow.resume":[0],"workflow.cancel":[0]},"groupProtocol":"RoundRobinAssigner","duration":3074}
+@ai-ide/ai-service:dev: [WorkflowWorker] Consumer running
+@ai-ide/ai-service:dev: [Main] Workflow worker started
+@ai-ide/ai-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:42.630Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"ai-execution-workers"}
+@ai-ide/search-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:45.317Z","logger":"kafkajs","message":"[Consumer] Starting","groupId":"search-service"}
+@ai-ide/ai-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:45.658Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"ai-execution-workers","memberId":"ai-service-execution-worker-6ba2ba23-59da-48bd-8f89-663f3ba28f90","leaderId":"ai-service-execution-worker-6ba2ba23-59da-48bd-8f89-663f3ba28f90","isLeader":true,"memberAssignment":{"ai.execution.tasks":[0]},"groupProtocol":"RoundRobinAssigner","duration":3028}
+@ai-ide/ai-service:dev: [ExecutionWorker] Started (workerId: execution-worker-18300-mmt86gez)
+@ai-ide/ai-service:dev: [Main] Execution worker started
+@ai-ide/ai-service:dev: node:events:497
+@ai-ide/ai-service:dev:       throw er; // Unhandled 'error' event
+@ai-ide/ai-service:dev:       ^
+@ai-ide/ai-service:dev:
+@ai-ide/ai-service:dev: Error: listen EADDRINUSE: address already in use ::1:8005
+@ai-ide/ai-service:dev:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+@ai-ide/ai-service:dev:     at listenInCluster (node:net:1997:12)
+@ai-ide/ai-service:dev:     at GetAddrInfoReqWrap.callback (node:net:2206:7)
+@ai-ide/ai-service:dev:     at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:134:8)
+@ai-ide/ai-service:dev: Emitted 'error' event on WebSocketServer instance at:
+@ai-ide/ai-service:dev:     at Server.emit (node:events:531:35)
+@ai-ide/ai-service:dev:     at emitErrorNT (node:net:1976:8)
+@ai-ide/ai-service:dev:     at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+@ai-ide/ai-service:dev:   code: 'EADDRINUSE',
+@ai-ide/ai-service:dev:   errno: -4091,
+@ai-ide/ai-service:dev:   syscall: 'listen',
+@ai-ide/ai-service:dev:   address: '::1',
+@ai-ide/ai-service:dev:   port: 8005
+@ai-ide/ai-service:dev: }
+@ai-ide/ai-service:dev:
+@ai-ide/ai-service:dev: Node.js v22.21.1
+@ai-ide/search-service:dev: [13:34:45] WARN: Elasticsearch not available, continuing without it
+@ai-ide/search-service:dev:     context: "search-service"
+@ai-ide/search-service:dev:     error: {
+@ai-ide/search-service:dev:       "options": {
+@ai-ide/search-service:dev:         "redaction": {
+@ai-ide/search-service:dev:           "type": "replace",
+@ai-ide/search-service:dev:           "additionalKeys": []
+@ai-ide/search-service:dev:         }
+@ai-ide/search-service:dev:       },
+@ai-ide/search-service:dev:       "name": "ConnectionError",
+@ai-ide/search-service:dev:       "meta": {
+@ai-ide/search-service:dev:         "statusCode": 0,
+@ai-ide/search-service:dev:         "headers": {},
+@ai-ide/search-service:dev:         "meta": {
+@ai-ide/search-service:dev:           "context": null,
+@ai-ide/search-service:dev:           "request": {
+@ai-ide/search-service:dev:             "params": {
+@ai-ide/search-service:dev:               "method": "HEAD",
+@ai-ide/search-service:dev:               "path": "/projects_global",
+@ai-ide/search-service:dev:               "querystring": "",
+@ai-ide/search-service:dev:               "headers": {
+@ai-ide/search-service:dev:                 "user-agent": "elasticsearch-js/8.19.1 (win32 10.0.26200-x64; Node.js 22.21.1; Transport 8.10.1)",
+@ai-ide/search-service:dev:                 "x-elastic-client-meta": "es=8.19.1,js=22.21.1,t=8.10.1,un=22.21.1",
+@ai-ide/search-service:dev:                 "accept": "application/vnd.elasticsearch+json; compatible-with=8,text/plain"
+@ai-ide/search-service:dev:               }
+@ai-ide/search-service:dev:             },
+@ai-ide/search-service:dev:             "options": {},
+@ai-ide/search-service:dev:             "id": 1
+@ai-ide/search-service:dev:           },
+@ai-ide/search-service:dev:           "name": "elasticsearch-js",
+@ai-ide/search-service:dev:           "connection": {
+@ai-ide/search-service:dev:             "url": "http://localhost:9200/",
+@ai-ide/search-service:dev:             "tls": {
+@ai-ide/search-service:dev:               "rejectUnauthorized": false
+@ai-ide/search-service:dev:             },
+@ai-ide/search-service:dev:             "id": "http://localhost:9200/",
+@ai-ide/search-service:dev:             "timeout": 30000,
+@ai-ide/search-service:dev:             "headers": {
+@ai-ide/search-service:dev:               "user-agent": "elasticsearch-js/8.19.1 (win32 10.0.26200-x64; Node.js 22.21.1; Transport 8.10.1)",
+@ai-ide/search-service:dev:               "x-elastic-client-meta": "es=8.19.1,js=22.21.1,t=8.10.1,un=22.21.1"
+@ai-ide/search-service:dev:             },
+@ai-ide/search-service:dev:             "deadCount": 0,
+@ai-ide/search-service:dev:             "resurrectTimeout": 0,
+@ai-ide/search-service:dev:             "_openRequests": 0,
+@ai-ide/search-service:dev:             "weight": 1000,
+@ai-ide/search-service:dev:             "maxEventListeners": 100,
+@ai-ide/search-service:dev:             "pool": {
+@ai-ide/search-service:dev:               "_events": {},
+@ai-ide/search-service:dev:               "_eventsCount": 1
+@ai-ide/search-service:dev:             }
+@ai-ide/search-service:dev:           },
+@ai-ide/search-service:dev:           "attempts": 3,
+@ai-ide/search-service:dev:           "aborted": false
+@ai-ide/search-service:dev:         },
+@ai-ide/search-service:dev:         "warnings": null
+@ai-ide/search-service:dev:       }
+@ai-ide/search-service:dev:     }
+@ai-ide/search-service:dev: [13:34:45] INFO: Kafka consumer connected
+@ai-ide/search-service:dev:     context: "search-service"
+@ai-ide/search-service:dev: {"level":"INFO","timestamp":"2026-03-16T13:34:48.362Z","logger":"kafkajs","message":"[ConsumerGroup] Consumer has joined the group","groupId":"search-service","memberId":"search-service-c3f4d270-bf4a-4711-9ac6-fc10945f4e1c","leaderId":"search-service-c3f4d270-bf4a-4711-9ac6-fc10945f4e1c","isLeader":true,"memberAssignment":{"file.modified":[0],"file.deleted":[0],"project.created":[0],"project.deleted":[0],"project.updated":[0]},"groupProtocol":"RoundRobinAssigner","duration":3043}
+@ai-ide/search-service:dev: [13:34:48] ERROR: Failed to start server
+@ai-ide/search-service:dev:     context: "search-service"
+@ai-ide/search-service:dev:     err: {
+@ai-ide/search-service:dev:       "type": "Error",
+@ai-ide/search-service:dev:       "message": "listen EADDRINUSE: address already in use 0.0.0.0:8008",
+@ai-ide/search-service:dev:       "stack":
+@ai-ide/search-service:dev:           Error: listen EADDRINUSE: address already in use 0.0.0.0:8008
+@ai-ide/search-service:dev:               at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+@ai-ide/search-service:dev:               at listenInCluster (node:net:1997:12)
+@ai-ide/search-service:dev:               at node:net:2206:7
+@ai-ide/search-service:dev:               at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+@ai-ide/search-service:dev:       "code": "EADDRINUSE",
+@ai-ide/search-service:dev:       "errno": -4091,
+@ai-ide/search-service:dev:       "syscall": "listen",
+@ai-ide/search-service:dev:       "address": "0.0.0.0",
+@ai-ide/search-service:dev:       "port": 8008
+@ai-ide/search-service:dev:     }

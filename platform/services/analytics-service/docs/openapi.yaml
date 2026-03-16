@@ -1,0 +1,254 @@
+openapi: 3.0.3
+info:
+  title: Analytics Service API
+  description: |
+    Analytics and admin features for AI-Native IDE Platform.
+    
+    ## Features
+    - Platform analytics overview
+    - Usage metrics
+    - Revenue metrics
+    - Feature flag management
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8009
+    description: Local development
+  - url: https://api.platform.io
+    description: Production
+
+tags:
+  - name: Analytics
+    description: Platform analytics
+  - name: Feature Flags
+    description: Feature flag management
+
+paths:
+  /api/v1/admin/analytics/overview:
+    get:
+      summary: Platform analytics
+      description: Get platform-wide analytics (admin only)
+      tags:
+        - Analytics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Analytics overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      totalUsers:
+                        type: integer
+                      activeUsers:
+                        type: integer
+                      totalProjects:
+                        type: integer
+                      totalDeployments:
+                        type: integer
+                      revenue:
+                        type: object
+                        properties:
+                          monthly:
+                            type: number
+                          arr:
+                            type: number
+
+  /api/v1/admin/usage:
+    get:
+      summary: Usage metrics
+      description: Get platform usage metrics
+      tags:
+        - Analytics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Usage metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      aiTokensUsed:
+                        type: integer
+                      computeMinutes:
+                        type: integer
+                      storageGb:
+                        type: number
+
+  /api/v1/admin/revenue:
+    get:
+      summary: Revenue metrics
+      description: Get revenue analytics
+      tags:
+        - Analytics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Revenue data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+
+  /api/v1/admin/feature-flags:
+    get:
+      summary: List feature flags
+      description: Get all feature flags
+      tags:
+        - Feature Flags
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Feature flags list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      flags:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FeatureFlag'
+
+    post:
+      summary: Create feature flag
+      description: Create new feature flag
+      tags:
+        - Feature Flags
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - key
+              properties:
+                key:
+                  type: string
+                  example: new_ai_model
+                description:
+                  type: string
+                enabled:
+                  type: boolean
+                  default: false
+                rolloutPercentage:
+                  type: integer
+                  default: 0
+      responses:
+        '201':
+          description: Feature flag created
+
+  /api/v1/admin/feature-flags/{key}:
+    put:
+      summary: Update feature flag
+      description: Update feature flag
+      tags:
+        - Feature Flags
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                rolloutPercentage:
+                  type: integer
+      responses:
+        '200':
+          description: Feature flag updated
+
+  /api/v1/health:
+    get:
+      summary: Service health check
+      description: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+components:
+  parameters:
+    X-API-Version:
+      name: X-API-Version
+      in: header
+      description: API version header for versioning
+      required: false
+      schema:
+        type: string
+        default: "1.0"
+      example: "1.0"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    FeatureFlag:
+      type: object
+      properties:
+        key:
+          type: string
+        description:
+          type: [string, 'null']
+        isEnabledDefault:
+          type: boolean
+        rolloutPercentage:
+          type: [integer, 'null']
+        enabledForUsers:
+          type: array
+          items:
+            type: string
+        enabledForPlans:
+          type: array
+          items:
+            type: string

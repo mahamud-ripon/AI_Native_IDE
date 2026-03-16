@@ -1,0 +1,48 @@
+{
+  "name": "@ai-ide/api-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for AI-Native IDE",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:e2e": "tsx scripts/e2e-test.ts",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@workspace/config": "workspace:*",
+    "@workspace/database": "workspace:*",
+    "@workspace/shared-types": "workspace:*",
+    "fastify": "^4.24.3",
+    "@fastify/cookie": "^9.2.0",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/rate-limit": "^7.6.0",
+    "@fastify/http-proxy": "^9.3.0",
+    "@fastify/helmet": "^11.1.1",
+    "fastify-plugin": "^4.5.1",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "opossum": "^7.1.0",
+    "uuid": "^9.0.1",
+    "dotenv": "^16.3.1",
+    "zod": "^3.22.4",
+    "pino": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.7",
+    "typescript": "^5.3.2",
+    "tsx": "^4.7.0",
+    "vitest": "^1.2.0",
+    "eslint": "^8.54.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0"
+  }
+}

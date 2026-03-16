@@ -1,0 +1,49 @@
+{
+  "name": "@ai-native-ide/platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-Native Cloud IDE Platform Monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev --concurrency=20",
+    "dev:all": "turbo dev --concurrency=20",
+    "start": "turbo dev --concurrency=20",
+    "start:all": "echo Starting all services... && pnpm dev",
+    "start:services": "pnpm dev",
+    "start:ai-agents": "cd ai-agents && python -m uvicorn src.api.main:app --reload --port 8000",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "clean": "turbo clean",
+    "db:generate": "turbo db:generate",
+    "db:push": "turbo db:push",
+    "db:migrate": "turbo db:migrate",
+    "docker:build": "turbo docker:build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up",
+    "docker:dev:build": "docker-compose -f docker-compose.dev.yml up --build",
+    "docker:db-init": "pnpm --filter @workspace/database db:push",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "lint:fix": "turbo lint -- --fix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "prettier": "^3.2.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "dependencies": {
+    "dotenv-cli": "^7.3.0"
+  }
+}

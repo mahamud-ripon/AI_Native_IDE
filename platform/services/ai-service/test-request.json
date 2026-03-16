@@ -1,0 +1,12 @@
+{
+  "workflowId": "test-workflow-001",
+  "projectId": "test-project-001",
+  "agentName": "plan_agent",
+  "stepName": "test-step",
+  "taskType": "plan",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Say hello in one word." }
+  ],
+  "maxTokens": 10
+}

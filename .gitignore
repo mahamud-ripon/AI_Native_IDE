@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.pnpm/
+
+# Build outputs
+dist/
+build/
+.turbo/
+coverage/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Docker
+*.pid
+*.seed
+*.pid.lock
+
+# AI Agent data
+ai-agents/__pycache__/
+ai-agents/.venv/
+*.pyc
+__pycache__/
+
+# Cache
+.cache/
+.parcel-cache/
