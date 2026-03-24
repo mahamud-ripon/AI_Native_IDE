@@ -1,12 +1,20 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '8009', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
   s3: {
-    endpoint: process.env.S3_ENDPOINT || undefined, // undefined for AWS default
+    endpoint: process.env.S3_ENDPOINT || undefined,
     region: process.env.S3_REGION || 'us-east-1',
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
@@ -31,7 +39,7 @@ export const config = {
   },
 
   database: {
-    url: process.env.DATABASE_URL!,
+    url: requireEnv('DATABASE_URL'),
   },
 
   clamav: {
@@ -41,17 +49,17 @@ export const config = {
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-super-secret-key-change-in-production',
+    secret: requireEnv('JWT_SECRET'),
     publicKey: process.env.JWT_PUBLIC_KEY || '',
   },
 
-  internalApiKey: process.env.INTERNAL_API_KEY || 'internal-api-key',
+  internalApiKey: requireEnv('INTERNAL_API_KEY'),
 
   storage: {
-    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '52428800', 10), // 50MB
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '52428800', 10),
     presignedUrlExpiry: {
-      upload: parseInt(process.env.PRESIGNED_UPLOAD_EXPIRY || '900', 10), // 15 min
-      download: parseInt(process.env.PRESIGNED_DOWNLOAD_EXPIRY || '3600', 10), // 1 hour
+      upload: parseInt(process.env.PRESIGNED_UPLOAD_EXPIRY || '900', 10),
+      download: parseInt(process.env.PRESIGNED_DOWNLOAD_EXPIRY || '3600', 10),
     },
     orphanCleanupSafetyHours: parseInt(process.env.ORPHAN_CLEANUP_SAFETY_HOURS || '24', 10),
   },

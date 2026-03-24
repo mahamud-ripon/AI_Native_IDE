@@ -1,3 +1,6 @@
+// Validate environment variables at startup
+import '@workspace/config/env';
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -14,7 +17,12 @@ const fastify = Fastify({
 async function start() {
   try {
     await fastify.register(helmet);
-    await fastify.register(cors, { origin: true });
+    await fastify.register(cors, {
+      origin: process.env.NODE_ENV === 'production'
+        ? ['https://platform.io', /^https:\/\/.*\.platform\.io$/]
+        : true,
+      credentials: true,
+    });
     await fastify.register(analyticsRoutes);
 
     await connectRedis();

@@ -1,3 +1,6 @@
+// Validate environment variables at startup
+import '@workspace/config/env';
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -15,9 +18,18 @@ import {
 import { startWorkflowWorker, stopWorkflowWorker } from './workflows/worker/workflow_worker.js';
 import { getWorkflowRegistry } from './workflows/registry.js';
 import { projectGenerationWorkflow } from './workflows/definitions/project_generation.workflow.js';
-import { startExecutionWorker, stopExecutionWorker } from './execution/index.js';
+import { 
+  startExecutionWorker, 
+  stopExecutionWorker,
+  initExecutionEventConsumer,
+  shutdownExecutionEventConsumer,
+  initExecutionEventProducer,
+  shutdownExecutionEventProducer,
+  disconnectExecutionKafka 
+} from './execution/index.js';
 import { registerExecutionRoutes } from './controllers/execution_controller.js';
-import { disconnectExecutionKafka } from './execution/index.js';
+import { setLLMProvider } from './coding/agent/index.js';
+import { getGatewayLLMProvider } from './coding/agent/llm_adapter.js';
 
 const fastify = Fastify({
   logger: true,
@@ -35,7 +47,10 @@ async function start() {
     await fastify.register(helmet);
     
     await fastify.register(cors, {
-      origin: true,
+      origin: process.env.NODE_ENV === 'production'
+        ? ['https://platform.io', /^https:\/\/.*\.platform\.io$/]
+        : true,
+      credentials: true,
     });
 
     await fastify.register(aiRoutes, { prefix: '/ai' });
@@ -55,17 +70,46 @@ async function start() {
     console.log('[Main] WebSocket gateway initialized');
 
     // Register workflow definitions
+    // Register workflow definitions
     const registry = getWorkflowRegistry();
     registry.register(projectGenerationWorkflow);
     console.log('[Main] Workflow definitions registered');
 
-    // Start workflow worker
-    await startWorkflowWorker();
-    console.log('[Main] Workflow worker started');
+    // Initialize CodeAgent LLM provider
+    setLLMProvider(getGatewayLLMProvider());
+    console.log('[Main] LLM provider registered for CodeAgent');
 
-    // Start execution worker
-    await startExecutionWorker();
-    console.log('[Main] Execution worker started');
+    // Start workflow worker (optional - doesn't block if Kafka fails)
+    try {
+      await startWorkflowWorker();
+      console.log('[Main] Workflow worker started');
+    } catch (err) {
+      console.warn('[Main] Workflow worker failed to start (Kafka may be unavailable):', err);
+    }
+
+    // Start execution worker (optional - doesn't block if Kafka fails)
+    try {
+      await startExecutionWorker();
+      console.log('[Main] Execution worker started');
+    } catch (err) {
+      console.warn('[Main] Execution worker failed to start (Kafka may be unavailable):', err);
+    }
+
+    // Start execution event producer (Phase-7 partitioned Kafka topics)
+    try {
+      await initExecutionEventProducer();
+      console.log('[Main] Execution event producer started');
+    } catch (err) {
+      console.warn('[Main] Execution event producer failed to start:', err);
+    }
+
+    // Start execution event consumer (bridges Kafka -> WebSocket)
+    try {
+      await initExecutionEventConsumer();
+      console.log('[Main] Execution event consumer started');
+    } catch (err) {
+      console.warn('[Main] Execution event consumer failed to start:', err);
+    }
 
     await fastify.listen({ port: config.port, host: '0.0.0.0' });
 
@@ -83,6 +127,8 @@ process.on('SIGTERM', async () => {
   // Stop workers
   await stopWorkflowWorker();
   await stopExecutionWorker();
+  await shutdownExecutionEventConsumer();
+  await shutdownExecutionEventProducer();
   
   // Shutdown WebSocket gateway
   await shutdownWebSocketGateway();
@@ -103,6 +149,8 @@ process.on('SIGINT', async () => {
   
   await stopWorkflowWorker();
   await stopExecutionWorker();
+  await shutdownExecutionEventConsumer();
+  await shutdownExecutionEventProducer();
   await shutdownWebSocketGateway();
   await fastify.close();
   await disconnectKafka();

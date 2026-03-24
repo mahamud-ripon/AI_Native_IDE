@@ -1,14 +1,12 @@
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 import { YjsManager } from '../core/yjs_manager.js';
 import { AwarenessManager } from '../core/awareness_manager.js';
 import { RedisPersistence } from '../persistence/redis_adapter.js';
 import { redis, RedisKeys } from '../lib/redis.js';
 
-const kafka = new Kafka({
-  clientId: 'collab-service',
-  brokers: config.kafkaBrokers,
-});
+const kafka = createKafkaClient({ clientId: 'collab-service', groupId: config.kafkaGroupId });
 
 let consumer: Consumer | null = null;
 

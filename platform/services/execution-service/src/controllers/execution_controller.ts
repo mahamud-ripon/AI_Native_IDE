@@ -23,10 +23,10 @@ const InstallSchema = z.object({
 
 export const ExecutionController = {
   // POST /api/v1/exec/run
-  async runCode(req: Request, res: Response) {
+  async runCode(request: Request, reply: Response) {
     try {
-      const data = RunSchema.parse(req.body);
-      const userId = (req as any).user.id;
+      const data = RunSchema.parse(request.body);
+      const userId = (request as any).user.id;
 
       // Verify user has execute permission
       const collaborator = await prisma.projectCollaborator.findFirst({
@@ -38,14 +38,14 @@ export const ExecutionController = {
       });
 
       if (!collaborator) {
-        return res.status(403).json({ error: 'Execute permission denied' });
+        return reply.status(403).send({ error: 'Execute permission denied' });
       }
 
       // Get VM from pool
       const vmId = await Prewarmer.acquireVM();
 
       if (!vmId) {
-        return res.status(503).json({ error: 'No VMs available' });
+        return reply.status(503).send({ error: 'No VMs available' });
       }
 
       // Inject secrets
@@ -78,22 +78,22 @@ export const ExecutionController = {
         vmId
       });
 
-      return res.json({
+      return reply.send({
         success: true,
         session_id: execution.id,
         status: 'running'
       });
     } catch (error: any) {
       console.error('[Execution] Error:', error);
-      return res.status(500).json({ error: error.message });
+      return reply.status(500).send({ error: error.message });
     }
   },
 
   // POST /api/v1/exec/install
-  async installPackages(req: Request, res: Response) {
+  async installPackages(request: Request, reply: Response) {
     try {
-      const data = InstallSchema.parse(req.body);
-      const userId = (req as any).user.id;
+      const data = InstallSchema.parse(request.body);
+      const userId = (request as any).user.id;
 
       const jobId = uuidv4();
 
@@ -121,22 +121,22 @@ export const ExecutionController = {
         command
       }));
 
-      return res.status(202).json({
+      return reply.status(202).send({
         success: true,
         job_id: jobId
       });
     } catch (error: any) {
       console.error('[Install] Error:', error);
-      return res.status(500).json({ error: error.message });
+      return reply.status(500).send({ error: error.message });
     }
   },
 
   // GET /api/v1/exec/history/:project_id
-  async getHistory(req: Request, res: Response) {
+  async getHistory(request: Request, reply: Response) {
     try {
-      const { project_id } = req.params;
-      const { limit = '20', cursor } = req.query;
-      const userId = (req as any).user.id;
+      const { project_id } = request.params;
+      const { limit = '20', cursor } = request.query;
+      const userId = (request as any).user.id;
 
       const executions = await prisma.codeExecution.findMany({
         where: { projectId: project_id as string },
@@ -159,21 +159,21 @@ export const ExecutionController = {
         nextCursor = next?.id;
       }
 
-      return res.json({
+      return reply.send({
         success: true,
         data: executions,
         nextCursor
       });
     } catch (error: any) {
       console.error('[History] Error:', error);
-      return res.status(500).json({ error: error.message });
+      return reply.status(500).send({ error: error.message });
     }
   },
 
   // POST /api/v1/exec/terminate/:session_id
-  async terminate(req: Request, res: Response) {
+  async terminate(request: Request, reply: Response) {
     try {
-      const { session_id } = req.params;
+      const { session_id } = request.params;
 
       await TerminalPTY.closeSession(session_id as string);
 
@@ -183,32 +183,32 @@ export const ExecutionController = {
         data: { status: 'killed' }
       });
 
-      return res.json({ success: true });
+      return reply.send({ success: true });
     } catch (error: any) {
       console.error('[Terminate] Error:', error);
-      return res.status(500).json({ error: error.message });
+      return reply.status(500).send({ error: error.message });
     }
   },
 
   // POST /api/v1/exec/hibernate/:project_id
-  async hibernate(req: Request, res: Response) {
+  async hibernate(request: Request, reply: Response) {
     try {
-      const { project_id } = req.params;
+      const { project_id } = request.params;
 
       const vmId = await redis.get(RedisKeys.vmProject(project_id as string));
 
       if (!vmId) {
-        return res.status(404).json({ error: 'No active VM for project' });
+        return reply.status(404).send({ error: 'No active VM for project' });
       }
 
       await SnapshotManager.hibernateVM(vmId, project_id as string);
       await Prewarmer.releaseVM(vmId);
       await redis.del(RedisKeys.vmProject(project_id as string));
 
-      return res.json({ success: true, message: 'VM hibernated' });
+      return reply.send({ success: true, message: 'VM hibernated' });
     } catch (error: any) {
       console.error('[Hibernate] Error:', error);
-      return res.status(500).json({ error: error.message });
+      return reply.status(500).send({ error: error.message });
     }
   }
 };

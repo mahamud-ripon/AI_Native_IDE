@@ -23,7 +23,7 @@
  *   }
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import {
   ExecutionStreamClient,
   ExecutionEvent,
@@ -31,7 +31,6 @@ import {
   ConnectionStatus,
 } from '../services/executionStream';
 import { editorModelManager } from '../core/editor/modelManager';
-import { ensureContainer } from '../core/runtime/webcontainerManager';
 import { useExecutionStore } from '../state/executionStore';
 import { editorManager } from '../core/editor/editorManager';
 import { aiDecorations } from '../core/editor/aiDecorations';
@@ -88,10 +87,10 @@ export function useExecutionStreamIntegration(
     projectId,
     workspaceId,
     userId = 'default-user',
-    wsUrl = 'ws://localhost:8005',
+    wsUrl = 'ws://localhost:8000/api/v1/ai/ws',
     autoConnect = true,
     autoSubscribeWorkspace = true,
-    mockMode = true, // Enable mock mode by default for frontend-only testing
+    mockMode = false, // Connect to real backend by default
     onTaskCreated,
     onTaskComplete,
     onTaskError,
@@ -99,7 +98,8 @@ export function useExecutionStreamIntegration(
     onFileModified,
   } = options;
 
-  const clientRef = useRef<ExecutionStreamClient | null>(null);
+  const [clientInstance, setClientInstance] = useState<ExecutionStreamClient | null>(null);
+  const pendingWCWrites = useRef<Map<string, string>>(new Map());
 
   // Store actions
   const setTask = useExecutionStore((s) => s.setTask);
@@ -109,34 +109,28 @@ export function useExecutionStreamIntegration(
   const addPatchPreview = useExecutionStore((s) => s.addPatchPreview);
   const connectionStatus = useExecutionStore((s) => s.connectionStatus);
 
-  // Apply patch to Monaco Editor and WebContainer
+  // Apply patch to Monaco Editor AND WebContainer filesystem
   const applyPatchToEditor = useCallback(async (filePath: string, content: string) => {
+    // 1. Apply to Monaco Editor (in-memory model)
     try {
-      // Apply to Monaco Editor
-      const model = editorModelManager.getOrCreate('', filePath, content);
-      if (model) {
-        model.setValue(content);
-        console.log(`[Patch] Applied to Monaco Editor: ${filePath}`);
-      }
-      
-      // Apply to WebContainer
-      try {
-        const container = await ensureContainer();
-        const dir = filePath.substring(0, filePath.lastIndexOf('/'));
-        if (dir) {
-          try {
-            await container.fs.mkdir(dir, { recursive: true });
-          } catch (e) {
-            // Directory might already exist
-          }
-        }
-        await container.fs.writeFile(filePath, content, 'utf-8');
-        console.log(`[Patch] Written to WebContainer: ${filePath}`);
-      } catch (e) {
-        console.warn('[Patch] Failed to write to WebContainer:', e);
+      const Monaco = await import('monaco-editor');
+      const fileModel = editorModelManager.getOrCreate(Monaco, '', filePath);
+      if (fileModel?.model) {
+        fileModel.model.setValue(content);
       }
     } catch (e) {
-      console.error('[Patch] Failed to apply patch:', e);
+      console.warn('[Patch] Monaco update failed:', e);
+    }
+
+    // 2. Write to WebContainer filesystem (so dev server picks up change)
+    try {
+      const { writeFile } = await import('../core/runtime/webcontainerManager');
+      await writeFile(filePath, content);
+      console.log(`[Patch] Written to WebContainer: ${filePath}`);
+    } catch (e) {
+      // WebContainer may not be booted yet — queue for later
+      console.warn('[Patch] WebContainer write deferred (not booted):', filePath);
+      pendingWCWrites.current.set(filePath, content);
     }
   }, []);
 
@@ -239,6 +233,17 @@ export function useExecutionStreamIntegration(
             applyPatchToEditor(patch.filePath, patch.newContent);
           }
 
+          // Handle bulk file sync from syncFiles endpoint (multi-file payload)
+          if (event.payload.files && typeof event.payload.files === 'object') {
+            const files = event.payload.files as Record<string, string>;
+            import('../core/runtime/webcontainerManager').then(({ writeBatch }) => {
+              writeBatch(files).then(results => {
+                const succeeded = results.filter(r => r.success).length;
+                console.log(`[Patch] Bulk WC sync: ${succeeded}/${results.length} files written`);
+              });
+            });
+          }
+
           onPatchGenerated?.(event.taskId, event.payload.patch);
           break;
         }
@@ -328,48 +333,59 @@ export function useExecutionStreamIntegration(
 
   // Initialize client
   useEffect(() => {
+    console.log('[useExecutionStreamIntegration] Creating fresh client instance');
     // Always get a fresh client with current options
-    clientRef.current = getExecutionStreamClient({
+    const newClient = getExecutionStreamClient({
       url: wsUrl,
       projectId,
       userId,
       mockMode,
     });
+    setClientInstance(newClient);
 
     return () => {
       // Cleanup on unmount
-      if (clientRef.current) {
-        clientRef.current.disconnect();
-        clientRef.current = null;
-      }
+      console.log('[useExecutionStreamIntegration] Cleaning up client instance');
+      newClient.disconnect();
     };
   }, [wsUrl, projectId, userId, mockMode]);
 
   // Subscribe to connection status
   useEffect(() => {
-    if (!clientRef.current) return;
+    if (!clientInstance) return;
 
-    const unsubscribe = clientRef.current.onStatusChange((status) => {
+    const unsubscribe = clientInstance.onStatusChange((status) => {
       setConnectionStatus(status as StoreConnectionStatus);
     });
 
     return unsubscribe;
-  }, [setConnectionStatus]);
+  }, [clientInstance, setConnectionStatus]);
 
-  // Auto-connect
+  // Auto-connect and re-connect if the client instance changes
+  // Guard per-client instance via a local ref to track which client has been connected
+  const connectedClientRef = useRef<ExecutionStreamClient | null>(null);
+  
   useEffect(() => {
-    if (!autoConnect || !clientRef.current) return;
+    if (!autoConnect || !clientInstance) return;
+    if (connectedClientRef.current === clientInstance) return;
 
-    clientRef.current.connect().catch((error) => {
+    console.log('[useExecutionStreamIntegration] Auto-connecting client:', clientInstance);
+    connectedClientRef.current = clientInstance;
+
+    clientInstance.connect().catch((error) => {
       console.error('[useExecutionStreamIntegration] Connection failed:', error);
+      if (connectedClientRef.current === clientInstance) {
+        connectedClientRef.current = null; // allow retry
+      }
     });
-  }, [autoConnect]);
+  }, [autoConnect, clientInstance]);
 
   // Auto-subscribe to workspace
   useEffect(() => {
-    if (!autoSubscribeWorkspace || !workspaceId || !clientRef.current) return;
+    if (!autoSubscribeWorkspace || !workspaceId || !clientInstance) return;
 
-    const unsubscribe = clientRef.current.subscribeToWorkspace(workspaceId, {
+    console.log('[useExecutionStreamIntegration] Subscribing to workspace:', workspaceId);
+    const unsubscribe = clientInstance.subscribeToWorkspace(workspaceId, {
       onEvent: handleEvent,
       onProgress: handleEvent,
       onPatch: handleEvent,
@@ -379,24 +395,45 @@ export function useExecutionStreamIntegration(
     });
 
     return unsubscribe;
-  }, [autoSubscribeWorkspace, workspaceId, handleEvent]);
+  }, [autoSubscribeWorkspace, workspaceId, handleEvent, clientInstance]);
+
+  // Drain pending WebContainer writes once container is available
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return;
+    
+    const drainPending = async () => {
+      if (pendingWCWrites.current.size === 0) return;
+      
+      const { writeBatch } = await import('../core/runtime/webcontainerManager');
+      const pending = Object.fromEntries(pendingWCWrites.current);
+      pendingWCWrites.current.clear();
+      
+      const results = await writeBatch(pending);
+      const failed = results.filter(r => !r.success);
+      if (failed.length > 0) {
+        console.warn('[Patch] Some queued WC writes failed:', failed);
+      }
+    };
+    
+    drainPending();
+  }, [connectionStatus]);
 
   // Connect function
   const connect = useCallback(async () => {
-    if (!clientRef.current) return;
-    await clientRef.current.connect();
-  }, []);
+    if (!clientInstance) return;
+    await clientInstance.connect();
+  }, [clientInstance]);
 
   // Disconnect function
   const disconnect = useCallback(() => {
-    clientRef.current?.disconnect();
-  }, []);
+    clientInstance?.disconnect();
+  }, [clientInstance]);
 
   // Subscribe to task function
   const subscribeToTask = useCallback(
     (taskId: string) => {
-      if (!clientRef.current) return () => {};
-      return clientRef.current.subscribeToTask(taskId, {
+      if (!clientInstance) return () => {};
+      return clientInstance.subscribeToTask(taskId, {
         onEvent: handleEvent,
         onProgress: handleEvent,
         onPatch: handleEvent,
@@ -405,14 +442,14 @@ export function useExecutionStreamIntegration(
         onError: handleEvent,
       });
     },
-    [handleEvent]
+    [handleEvent, clientInstance]
   );
 
   // Subscribe to workspace function
   const subscribeToWorkspace = useCallback(
     (wsId: string) => {
-      if (!clientRef.current) return () => {};
-      return clientRef.current.subscribeToWorkspace(wsId, {
+      if (!clientInstance) return () => {};
+      return clientInstance.subscribeToWorkspace(wsId, {
         onEvent: handleEvent,
         onProgress: handleEvent,
         onPatch: handleEvent,
@@ -421,11 +458,11 @@ export function useExecutionStreamIntegration(
         onError: handleEvent,
       });
     },
-    [handleEvent]
+    [handleEvent, clientInstance]
   );
 
   return {
-    client: clientRef.current,
+    client: clientInstance,
     status: connectionStatus as ConnectionStatus,
     connect,
     disconnect,

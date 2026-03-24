@@ -22,7 +22,8 @@
  *   - execution:user:{userId}
  */
 
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import Redis from 'ioredis';
 import { config } from '../config.js';
 import {
@@ -66,10 +67,7 @@ export async function initExecutionEventConsumer(): Promise<void> {
   console.log('[ExecutionEventConsumer] Connected to Redis');
 
   // Initialize Kafka consumer
-  const kafka = new Kafka({
-    clientId: 'ai-service-execution-consumer',
-    brokers: config.kafkaBrokers.split(','),
-  });
+  const kafka = createKafkaClient({ clientId: 'ai-service-execution-consumer', groupId: CONSUMER_GROUP_ID });
 
   consumer = kafka.consumer({
     groupId: CONSUMER_GROUP_ID,

@@ -1,6 +1,6 @@
 # 🔗 Full-Stack Integration Status Report
 
-**Date:** March 16, 2026  
+**Date:** March 19, 2026  
 **Status:** ✅ **DATABASE INITIALIZED** - Ready for service startup
 
 ---
@@ -34,7 +34,7 @@
 ### 3. Backend Services Build ✅
 ```
 ✅ All 14 TypeScript services compile without errors
-✅ AI Service configured with AI Agents URL (port 8000)
+✅ AI Service configured with AI Agents URL (port 9000)
 ✅ API Gateway routing configured (fixed port 8003)
 ```
 
@@ -54,9 +54,9 @@
 
 **Current State:**
 ```
-ai-service (TypeScript, port 8005)
-  ❌ NO DIRECT CONNECTION to
-ai-agents (Python, port 8000)
+ai-service (TypeScript, port 8003)
+❌ NO DIRECT CONNECTION to
+ai-agents (Python, port 9000)
 ```
 
 **Problem:** The `ai-service` is configured to use LangChain directly, but the Python `ai-agents/` directory with LangGraph agents exists separately with **no connection** between them.
@@ -64,7 +64,7 @@ ai-agents (Python, port 8000)
 **Required Fix:**
 ```typescript
 // ai-service needs to call Python agents via HTTP
-const AI_AGENTS_URL = process.env.AI_AGENTS_URL || 'http://localhost:8000';
+const AI_AGENTS_URL = process.env.AI_AGENTS_URL || 'http://localhost:9000';
 
 // When AI task is received:
 await fetch(`${AI_AGENTS_URL}/api/v1/workflow/stream`, {
@@ -79,7 +79,7 @@ await fetch(`${AI_AGENTS_URL}/api/v1/workflow/stream`, {
 
 **Configured in api-gateway:**
 ```
-AI_SERVICE_URL = http://localhost:8005
+AI_SERVICE_URL = http://localhost:8003
 ```
 
 **Actual ai-service listening on:**
@@ -112,13 +112,13 @@ pnpm --filter @workspace/database db:push
 
 **IDE expects:**
 ```
-VITE_API_GATEWAY_URL=http://localhost:3000
+VITE_API_GATEWAY_URL=http://localhost:8000
 VITE_WS_URL=ws://localhost:8012
 ```
 
 **But services need:**
 ```
-API_GATEWAY_PORT=3000
+API_GATEWAY_PORT=8000
 WS_GATEWAY_PORT=8012
 AI_SERVICE_PORT=8003 (not 8005!)
 ```
@@ -130,9 +130,9 @@ AI_SERVICE_PORT=8003 (not 8005!)
 ### Test 1: API Gateway Routing
 ```bash
 # Test each service route
-curl http://localhost:3000/health
-curl http://localhost:3000/api/v1/auth/me
-curl http://localhost:3000/api/v1/projects
+curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/auth/me
+curl http://localhost:8000/api/v1/projects
 ```
 
 ### Test 2: WebSocket Connection
@@ -145,11 +145,11 @@ ws.send(JSON.stringify({ type: 'subscribe', channel: 'collab:test' }));
 ### Test 3: AI Service → Python Agents
 ```bash
 # Call AI service
-curl -X POST http://localhost:8005/ai/execute \
+curl -X POST http://localhost:8003/ai/execute \
   -d '{"prompt": "Create a todo app", "project_id": "test123"}'
 
 # Should trigger Python agent
-curl http://localhost:8000/api/v1/workflow/status
+curl http://localhost:9000/api/v1/workflow/status
 ```
 
 ### Test 4: Full IDE Flow
@@ -232,7 +232,7 @@ pnpm dev
 
 # Terminal 2: Start AI Agents (Python)
 cd ai-agents
-python -m uvicorn src.api.main:app --reload --port 8000
+python -m uvicorn src.api.main:app --reload --port 9000
 
 # Terminal 3: Start IDE
 cd apps/ide
@@ -242,13 +242,13 @@ npm run dev
 **Step 3: Verify Connections (15 minutes)**
 ```bash
 # Test API Gateway
-curl http://localhost:3000/health
+curl http://localhost:8000/health
 
 # Test AI Service
 curl http://localhost:8003/health
 
 # Test Python Agents
-curl http://localhost:8000/api/v1/workflow/status
+curl http://localhost:9000/api/v1/workflow/status
 
 # Test WebSocket
 # Open browser console at localhost:5173 and check for WS connection
@@ -269,8 +269,8 @@ mkdir -p tests/integration
 **Honest Answer:** ❌ **NO** - Not without fixes
 
 **Why:**
-1. AI Service port mismatch (8005 vs 8003)
-2. No connection between TypeScript AI service and Python agents
+1. AI Service port mismatch (now fixed - using 8003)
+2. Connection between TypeScript AI service and Python agents (now uses port 9000)
 3. Database not initialized
 4. Services not started
 

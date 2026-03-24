@@ -23,25 +23,10 @@ COPY apps/ide/vite.config.ts ./
 RUN pnpm build
 
 # Production stage
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Install pnpm
-RUN npm install -g pnpm
-
-# Copy package files
-COPY apps/ide/package.json pnpm-lock.yaml ./
-COPY pnpm-workspace.yaml ./
-
-# Install production dependencies
-RUN pnpm install --prod
+FROM nginx:1.27-alpine AS production
 
 # Copy built files from builder
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Expose port
-EXPOSE 3000
-
-# Run the application
-CMD ["pnpm", "dev"]
+EXPOSE 80

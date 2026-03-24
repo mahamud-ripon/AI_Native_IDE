@@ -103,11 +103,15 @@ export const YjsManager = {
 
   /**
    * Run CRDT garbage collection
-   * Squashes history to keep binary size under control
+   * Squashes history to keep binary size under control while preserving event observers
    */
   async runGarbageCollection(fileId: string): Promise<void> {
     const ydoc = DOC_CACHE.get(fileId);
     if (!ydoc) return;
+
+    // Capture all event observers from the old doc before replacing it
+    const textObservers = (ydoc.getText('monaco') as any)._eH?.l || [];
+    const docObservers = (ydoc as any)._eH?.l || [];
 
     // Encode current state (this squashes all history)
     const state = Y.encodeStateAsUpdate(ydoc);
@@ -115,6 +119,15 @@ export const YjsManager = {
     // Create new doc with just the current state
     const newDoc = new Y.Doc();
     Y.applyUpdate(newDoc, state);
+    
+    // Re-attach observers to the new doc's text type to preserve awareness synchronization
+    const newText = newDoc.getText('monaco');
+    for (const observer of textObservers) {
+      newText.observe(observer);
+    }
+    for (const observer of docObservers) {
+      newDoc.on('update', observer);
+    }
     
     // Replace in cache
     DOC_CACHE.set(fileId, newDoc);
@@ -128,7 +141,7 @@ export const YjsManager = {
       config.docTtl
     );
 
-    console.log(`[YjsManager] GC completed for ${fileId}, size: ${state.length} bytes`);
+    console.log(`[YjsManager] GC completed for ${fileId}, size: ${state.length} bytes, observers preserved: ${textObservers.length + docObservers.length}`);
   },
 
   /**

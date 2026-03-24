@@ -84,9 +84,19 @@ export interface WorkflowEvent {
 // CONFIG
 // ========================================
 
-// For AI workflows, connect directly to AI Service (bypass API Gateway due to proxy issues)
-const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || 'http://localhost:8005';
-const AI_SERVICE_WS_URL = import.meta.env.VITE_AI_SERVICE_WS_URL || 'ws://localhost:8005';
+// Use Vite proxy in development, direct URL in production
+const isDev = import.meta.env.DEV;
+const AI_SERVICE_URL = isDev
+  ? '/api/ai'
+  : (import.meta.env.VITE_AI_SERVICE_URL || 'http://localhost:8003');
+const AI_SERVICE_WS_URL = isDev
+  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/ai`
+  : `${AI_SERVICE_URL.replace('http', 'ws')}/ws`;
+
+// DEBUG: Log which URL is being used
+console.log('[AIServiceClient] Initializing with URL:', AI_SERVICE_URL);
+console.log('[AIServiceClient] WebSocket URL:', AI_SERVICE_WS_URL);
+console.log('[AIServiceClient] VITE_AI_SERVICE_URL env:', import.meta.env.VITE_AI_SERVICE_URL);
 
 // ========================================
 // API CLIENT
@@ -232,6 +242,7 @@ class AIServiceClient {
       return;
     }
 
+    console.log('[AIServiceClient] Attempting WebSocket connection to:', this.wsUrl);
     this.ws = new WebSocket(this.wsUrl);
 
     this.ws.onopen = () => {

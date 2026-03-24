@@ -26,9 +26,8 @@
  */
 
 import { groqClient } from './groqClient';
-import { editorManager, TextPatch } from '../core/editor/editorManager';
-import { editorModelManager } from '../core/editor/modelManager';
 import { editorContextService, EditorContext } from './editorContextService';
+import { useIDEStore, ideEventBus, detectLanguage } from '../stores/ideStore';
 
 // ========================================
 // TYPES
@@ -123,6 +122,9 @@ export function parsePatchResponse(response: string): GeneratedPatch[] {
   const patches: GeneratedPatch[] = [];
   
   console.log('[LocalCodingService] Full AI response:', response);
+
+  // Normalize CRLF (Windows) and bare CR (old Mac) to LF to prevent regex mismatches
+  const normalized = response.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   
   // Strategy 1: Look for // FILE: comments followed by code blocks
   const fileCommentRegex = /(?:\/\/\s*FILE:\s*(.+?)\s*\n|\/\*\s*FILE:\s*(.+?)\s*\*\/\s*\n)?```(\w*)\n([\s\S]*?)\n```/g;
@@ -130,7 +132,7 @@ export function parsePatchResponse(response: string): GeneratedPatch[] {
   let match;
   let fileIndex = 0;
   
-  while ((match = fileCommentRegex.exec(response)) !== null) {
+  while ((match = fileCommentRegex.exec(normalized)) !== null) {
     const filePathFromComment = (match[1] || match[2] || '').trim();
     const language = match[3] || 'typescript';
     const content = match[4].trim();
@@ -181,7 +183,7 @@ export function parsePatchResponse(response: string): GeneratedPatch[] {
     console.log('[LocalCodingService] No code blocks found, trying alternative extraction...');
     
     // Look for indented code sections
-    const lines = response.split('\n');
+    const lines = normalized.split('\n');
     let codeBuffer: string[] = [];
     let inCode = false;
     
@@ -240,7 +242,9 @@ export function parsePatchResponse(response: string): GeneratedPatch[] {
 // ========================================
 
 /**
- * Apply generated patches to the editor
+ * Apply generated patches to the IDE store and file system.
+ * Updates the IDE's file content cache, opens files in editor tabs,
+ * and emits events so the file tree refreshes.
  */
 export async function applyGeneratedPatches(
   projectId: string,
@@ -249,31 +253,60 @@ export async function applyGeneratedPatches(
   const applied: string[] = [];
   const failed: string[] = [];
   
+  const store = useIDEStore.getState();
+
+  // Also open files in tabsStore, which IdeShell uses to render the tab bar (Bug 11 fix)
+  const { useTabsStore } = await import('../state/tabsStore');
+  const tabsStore = useTabsStore.getState();
+
   for (const patch of patches) {
     try {
-      // Get or create the file
-      let model = editorManager.getModel(projectId, patch.filePath);
+      // Update file content in the IDE store
+      store.setFileContent(patch.filePath, patch.content);
       
-      if (!model) {
-        // File doesn't exist - create it
-        const fileModel = editorModelManager.getOrCreate(
-          (window as any).monaco,
-          projectId,
-          patch.filePath
-        );
-        model = fileModel.model;
-        
-        // Set initial content
-        model.setValue(patch.content);
-        applied.push(patch.filePath);
+      // Open the file as a tab in the editor (ideStore)
+      store.openTab(patch.filePath, patch.content);
+
+      // Also register in tabsStore so IdeShell's tab bar shows it (Bug 11 fix)
+      tabsStore.openTab(projectId, patch.filePath);
+      
+      // Add file to the tree if it's a new file
+      if (patch.isNewFile) {
+        // Determine parent directory
+        const segments = patch.filePath.split('/');
+        const fileName = segments[segments.length - 1];
+        const parentPath = segments.slice(0, -1).join('/') || '/';
+
+        // Try to add to file tree
+        try {
+          store.addFileNode(parentPath, {
+            id: `gen-${patch.filePath}-${Date.now()}`,
+            name: fileName,
+            type: 'file',
+            path: patch.filePath,
+          });
+        } catch {
+          // Parent may not exist in tree yet; the file:created event will trigger a refresh
+        }
+
+        // Emit file:created event so file tree components re-fetch
+        ideEventBus.emit('file:created', { path: patch.filePath });
       } else {
-        // File exists - apply as full replacement for now
-        // TODO: Implement proper diff/merge
-        model.setValue(patch.content);
-        applied.push(patch.filePath);
+        // For existing files, emit file:changed
+        ideEventBus.emit('file:changed', { path: patch.filePath, content: patch.content });
       }
-      
-      // Note: File change events will be picked up by the model's onDidChangeContent listener
+
+      // Attempt to persist via filesystem API (upsert — works for new AND existing files)
+      try {
+        const { fileSystemClient } = await import('../api/fileSystemClient');
+        await fileSystemClient.applyAiPatches(projectId, [{ path: patch.filePath, content: patch.content }]);
+      } catch {
+        // Filesystem API not available (offline mode) — content is in store
+        console.warn(`[LocalCodingService] Could not persist ${patch.filePath} to filesystem (offline mode)`);
+      }
+
+      applied.push(patch.filePath);
+      console.log(`[LocalCodingService] Applied: ${patch.filePath}`);
       
     } catch (error) {
       console.error(`[LocalCodingService] Failed to apply patch to ${patch.filePath}:`, error);

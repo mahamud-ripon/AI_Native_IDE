@@ -33,7 +33,7 @@ interface RequestConfig extends RequestInit {
 // Configuration
 // ========================================
 
-const API_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8012';
 
 // ========================================
@@ -45,7 +45,7 @@ let refreshTokenPromise: Promise<string> | null = null;
 
 function getTokenFromStorage(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('access_token');
+  return localStorage.getItem('access_token') || localStorage.getItem('auth_token');
 }
 
 function setTokenInStorage(token: string | null): void {
@@ -165,15 +165,22 @@ async function request<T>(
       // Handle 401 - token expired
       if (response.status === 401 && !skipAuth) {
         clearTokens();
-        try {
-          const newToken = await refreshAccessToken();
-          if (newToken) {
-            // Retry with new token
-            return request<T>(endpoint, config);
-          }
-        } catch {
-          window.location.href = '/login';
+        
+        // Show logout popup for token expiry
+        const errorCode = data.error?.code;
+        const errorMessage = data.error?.message || '';
+        const isTokenExpired = errorCode === 'TOKEN_EXPIRED' || 
+                               errorMessage.includes('expired') ||
+                               errorMessage.includes('Token expired');
+        
+        if (isTokenExpired) {
+          alert('Your session has expired. Please log in again.');
+        } else {
+          alert('Authentication failed. Please log in again.');
         }
+        
+        window.location.href = '/login';
+        throw new ApiRequestError('Session expired', 'TOKEN_EXPIRED', 401);
       }
 
       throw new ApiRequestError(
@@ -222,16 +229,18 @@ class ApiRequestError extends Error {
 export const api = {
   // Auth
   auth: {
-    login: (email: string, password: string) =>
-      request<{ access_token: string; user: any }>('/api/v1/auth/login', {
+    login: (emailOrUsername: string, password: string) =>
+      request<{ accessToken: string; user: any }>('/api/v1/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email_or_username: emailOrUsername, password }),
+        skipAuth: true,
       }),
     
-    register: (email: string, password: string, name: string) =>
-      request<{ access_token: string; user: any }>('/api/v1/auth/register', {
+    register: (email: string, password: string, username: string) =>
+      request<{ accessToken: string; user: any }>('/api/v1/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({ email, password, username }),
+        skipAuth: true,
       }),
     
     logout: () => request('/api/v1/auth/logout', { method: 'POST' }),

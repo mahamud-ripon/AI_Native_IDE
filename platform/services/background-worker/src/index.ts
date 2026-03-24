@@ -1,12 +1,11 @@
-import dotenv from 'dotenv';
-import { redisClient, redlockClient } from './lib/redis';
-import { prisma } from '@workspace/database';
-import { startCronManager, stopCronManager } from './scheduler/cron_manager';
-import { initializeQueues, startQueueConsumers, stopQueueConsumers } from './queue/queue_consumer';
-import { startKafkaConsumer, stopKafkaConsumer } from './queue/kafka_consumer.js';
+// Validate environment variables at startup
+import '@workspace/config/env';
 
-// Load environment variables
-dotenv.config();
+import { redisClient, redlockClient } from './lib/redis.js';
+import { prisma } from './lib/prisma.js';
+import { initializeQueues, startQueueConsumers, stopQueueConsumers } from './queue/queue_consumer.js';
+import { startKafkaConsumer, stopKafkaConsumer } from './queue/kafka_consumer.js';
+import { startCronManager, stopCronManager } from './scheduler/cron_manager.js';
 
 const logger = {
   info: (msg: string) => console.log(`[Background Worker] ${msg}`),
@@ -40,16 +39,23 @@ async function gracefulShutdown(signal: string): Promise<void> {
     await stopKafkaConsumer();
 
     // Wait for active jobs to complete (with timeout)
-    logger.info('⏳ Waiting for active jobs to complete (30s timeout)...');
+    logger.info('⏳ Waiting for active jobs to complete (5s timeout)...');
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
-    // Close connections
-    logger.info('🔌 Closing Redis connections...');
-    await redisClient.quit();
-    await redlockClient.quit();
+    // Close connections with graceful degradation
+    logger.info('🔌 Closing connections...');
+    const results = await Promise.allSettled([
+      redisClient.quit(),
+      redlockClient.quit(),
+      prisma.$disconnect(),
+    ]);
 
-    logger.info('🔌 Disconnecting Prisma...');
-    await prisma.$disconnect();
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        const names = ['Redis', 'Redlock', 'Prisma'];
+        logger.error(`Failed to disconnect ${names[index]}: ${result.reason}`);
+      }
+    });
 
     logger.info('✅ Graceful shutdown complete');
     process.exit(0);

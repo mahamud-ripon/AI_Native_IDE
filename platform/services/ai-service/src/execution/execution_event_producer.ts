@@ -16,7 +16,8 @@
  *   All events for same taskId → same partition → ordered consumption
  */
 
-import { Kafka, Producer, Message } from 'kafkajs';
+import { Producer, Message } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 import {
   ExecutionEvent,
@@ -41,10 +42,7 @@ export async function initExecutionEventProducer(): Promise<void> {
     return;
   }
 
-  const kafka = new Kafka({
-    clientId: 'ai-service-execution-producer',
-    brokers: config.kafkaBrokers.split(','),
-  });
+  const kafka = createKafkaClient({ clientId: 'ai-service-execution-producer' });
 
   producer = kafka.producer({
     // Enable idempotent producer for exactly-once semantics

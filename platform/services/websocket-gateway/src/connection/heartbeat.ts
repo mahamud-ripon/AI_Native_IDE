@@ -12,7 +12,7 @@ export const HeartbeatManager = {
 
     // Check connections every 10 seconds
     intervalId = setInterval(() => {
-      this.checkConnections();
+      HeartbeatManager.checkConnections();
     }, 10000);
 
     logger.info('Heartbeat manager started');

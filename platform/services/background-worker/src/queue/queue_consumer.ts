@@ -308,11 +308,18 @@ export function getQueue(name: string): Queue | undefined {
   return queues.get(name);
 }
 
-export function stopQueueConsumers(): void {
+export async function stopQueueConsumers(): Promise<void> {
   logger.info('🛑 Stopping queue consumers...');
   
-  workers.forEach((worker) => worker.close());
-  queues.forEach((queue) => queue.close());
+  // Wait for all workers to close (completes in-flight jobs)
+  await Promise.all(workers.map((worker) => worker.close()));
+  
+  // Wait for all queues to close
+  await Promise.all(Array.from(queues.values()).map((queue) => queue.close()));
+  
+  // Clear arrays
+  workers.length = 0;
+  queues.clear();
   
   logger.info('✅ Queue consumers stopped');
 }

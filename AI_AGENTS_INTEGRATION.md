@@ -69,7 +69,7 @@ AI_AGENTS_API_KEY=internal-api-key
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Browser (IDE) - http://localhost:3000              │
+│ Browser (IDE) - http://localhost:5173 │
 └────────────┬────────────────────────────────────────┘
              │
              ▼
@@ -80,7 +80,7 @@ AI_AGENTS_API_KEY=internal-api-key
              │
              ▼
 ┌─────────────────────────────────────────────────────┐
-│  AI Service (Port 8005) - Node.js                    │
+│ AI Service (Port 8003) - Node.js │
 │  - Workflow orchestration                            │
 │  - Step execution                                    │
 │  - WebSocket real-time updates                       │
@@ -186,9 +186,9 @@ docker exec ai-native-ai-service curl http://ai-native-python-agents:9000/health
 
 | Service | Port | Status |
 |---------|------|--------|
-| IDE | 3000 | ✅ Running |
+| IDE | 5173 | ✅ Running |
 | API Gateway | 8000 | ✅ Running |
-| AI Service (Node.js) | 8005 | ✅ Running |
+| AI Service (Node.js) | 8003 | ✅ Running |
 | **AI Agents (Python)** | **9000** | ⏳ Building |
 | PostgreSQL | 5432 | ✅ Running |
 | Redis | 6379 | ✅ Running |
@@ -214,7 +214,7 @@ docker exec ai-native-ai-service curl http://ai-native-python-agents:9000/health
 
 ---
 
-**Last Updated:** March 16, 2026  
+**Last Updated:** March 19, 2026  
 **Status:** ✅ Integration Complete - Ready for Testing
 
 ---
@@ -251,7 +251,7 @@ User Prompt → IDE → API Gateway → AI Service (Node.js)
 
 ### **Test Now:**
 
-1. **Refresh Browser:** http://localhost:3000 (Ctrl+Shift+R)
+1. **Refresh Browser:** http://localhost:5173 (Ctrl+Shift+R)
 2. **Type:** "build a todolist app"
 3. **Watch Console:** Look for `[StepExecutor] Calling Python AI Agents`
 4. **Monitor Logs:**

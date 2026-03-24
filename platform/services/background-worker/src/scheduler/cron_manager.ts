@@ -65,9 +65,11 @@ export function startCronManager(): void {
       const startTime = Date.now();
       logger.info(`🔔 Job ${job.name} triggered`);
 
+      let lockAcquired = false;
+
       try {
         // Acquire distributed lock
-        const lockAcquired = await acquireLock(job.lockKey, job.lockTtl);
+        lockAcquired = await acquireLock(job.lockKey, job.lockTtl);
         
         if (!lockAcquired) {
           logger.info(`⏭️ Job ${job.name} skipped - another instance is running`);
@@ -85,9 +87,11 @@ export function startCronManager(): void {
       } catch (error) {
         logger.error(`❌ Job ${job.name} failed:`, error);
       } finally {
-        // Release lock
-        await releaseLock(job.lockKey);
-        logger.info(`🔓 Lock released for ${job.name}`);
+        // Only release lock if we acquired it
+        if (lockAcquired) {
+          await releaseLock(job.lockKey);
+          logger.info(`🔓 Lock released for ${job.name}`);
+        }
       }
     }, {
       scheduled: true,

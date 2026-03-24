@@ -52,7 +52,7 @@ If you want AI code generation features:
 
 ```powershell
 cd D:\AI-Native-IDE\platform\ai-agents
-python -m uvicorn src.api.main:app --reload --port 8000
+python -m uvicorn src.api.main:app --reload --port 9000
 ```
 
 **Or use the shortcut:**
@@ -88,9 +88,9 @@ docker-compose down
 
 You'll know it's working when you see:
 ```
-✅ api-gateway ready on http://localhost:3000
+✅ api-gateway ready on http://localhost:8000
 ✅ ai-service ready on http://localhost:8003
-✅ project-service ready on http://localhost:3002
+✅ project-service ready on http://localhost:8002
 ... (and more services)
 ```
 

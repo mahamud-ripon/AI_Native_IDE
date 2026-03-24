@@ -68,6 +68,16 @@ class ToolRegistry:
             )
             return {"success": success, "tool": "delete_file"}
 
+        if tool_name == "patch_file":
+            # Apply patch operations to existing files
+            from .patch_file_tool import patch_file_tool
+            return await patch_file_tool.apply_patch(
+                project_id,
+                kwargs.get("file_path", ""),
+                kwargs.get("patches", []),  # List of patch operations
+                kwargs.get("source", "ai_agent"),
+            )
+
         if tool_name == "list_files":
             files = await self.file_modifier.list_files(
                 project_id,

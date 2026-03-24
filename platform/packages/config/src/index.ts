@@ -9,6 +9,9 @@ const envSchema = z.object({
   
   // Kafka
   KAFKA_BROKERS: z.string().default('localhost:9092'),
+  KAFKA_USERNAME: z.string().optional(),
+  KAFKA_PASSWORD: z.string().optional(),
+  KAFKA_SASL_MECHANISM: z.enum(['plain', 'scram-sha-256', 'scram-sha-512']).optional(),
   
   // Auth
   JWT_PRIVATE_KEY: z.string().default('development-private-key'),

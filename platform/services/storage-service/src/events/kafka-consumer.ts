@@ -1,4 +1,5 @@
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config/index';
 import { OrphanCleaner } from '../services/orphan-cleaner.service';
 import { logger } from '../lib/logger';
@@ -16,12 +17,14 @@ export const KafkaConsumer = {
     }
 
     try {
-      const kafka = new Kafka({
-        clientId: 'storage-service',
-        brokers: config.kafka.brokers,
-      });
+      const kafka = createKafkaClient({ clientId: 'storage-service', groupId: config.kafka.groupId });
 
       consumer = kafka.consumer({ groupId: config.kafka.groupId });
+
+      if (!consumer) {
+        logger.error('Failed to create Kafka consumer');
+        return;
+      }
 
       await consumer.connect();
       logger.info({ brokers: config.kafka.brokers }, 'Kafka consumer connected');

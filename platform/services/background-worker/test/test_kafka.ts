@@ -1,8 +1,9 @@
-import { Kafka, Producer } from 'kafkajs';
+import { Kafka, Producer, logLevel } from 'kafkajs';
 
 const kafka = new Kafka({
   clientId: 'test-producer',
   brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
+  logLevel: logLevel.ERROR,
 });
 
 const producer: Producer = kafka.producer();

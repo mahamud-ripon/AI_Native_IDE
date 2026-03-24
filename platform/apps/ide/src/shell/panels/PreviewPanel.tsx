@@ -1,120 +1,181 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
-import { ensureContainer, mountDemoProject, ensureDependenciesInstalled, startDevServer } from '../../core/runtime/webcontainerManager';
-import type { WebContainer } from '@webcontainer/api';
+import {
+  ensureContainer,
+  mountProject,
+  ensureDependenciesInstalled,
+  startDevServer,
+} from '../../core/runtime/webcontainerManager';
 import { useRuntimeLogStore } from '../../state/runtimeLogStore';
 import styles from './Panel.module.css';
 
+type RuntimeStatus = 'idle' | 'booting' | 'mounting' | 'installing' | 'starting' | 'running' | 'error';
+
+const STATUS_LABELS: Record<RuntimeStatus, string> = {
+  idle: 'Idle',
+  booting: 'Booting WebContainer…',
+  mounting: 'Mounting project files…',
+  installing: 'Installing dependencies…',
+  starting: 'Starting dev server…',
+  running: 'Running',
+  error: 'Error',
+};
+
 export function PreviewPanel() {
-  const { projectId } = useParams();
-  const [status, setStatus] = useState<'idle' | 'booting' | 'installing' | 'running' | 'error'>('idle');
-  const [url, setUrl] = useState<string>('');
-  const logTail = useRuntimeLogStore((s) => s.log);
+  const { projectId } = useParams<{ projectId: string }>();
+  const [status, setStatus] = useState<RuntimeStatus>('idle');
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [iframeKey, setIframeKey] = useState(0); // Force iframe refresh
+
   const append = useRuntimeLogStore((s) => s.append);
   const clear = useRuntimeLogStore((s) => s.clear);
-  const subscribedRef = useRef(false);
+  const log = useRuntimeLogStore((s) => s.log);
+  const bootedRef = useRef(false);
 
-  const appendLog = useCallback((chunk: string) => {
-    append(chunk);
-  }, [append]);
-
+  // Register server-ready listener ONCE on mount before any boot attempt
   useEffect(() => {
-    if (subscribedRef.current) return;
-    subscribedRef.current = true;
+    let cancelled = false;
 
-    const subscribe = async () => {
+    const registerListener = async () => {
       try {
-        const wc: WebContainer = await ensureContainer();
-        wc.on('server-ready', (_port: number, serverUrl: string) => {
-          setUrl(serverUrl);
+        const wc = await ensureContainer();
+        
+        wc.on('server-ready', (_port: number, url: string) => {
+          if (cancelled) return;
+          console.log('[Preview] Server ready at:', url);
+          setPreviewUrl(url);
           setStatus('running');
+          setIframeKey(k => k + 1); // Force iframe to reload with new URL
         });
-      } catch {
-        setStatus('error');
+      } catch (err) {
+        console.error('[Preview] Failed to register server-ready listener:', err);
       }
     };
-    subscribe();
+
+    registerListener();
+    return () => { cancelled = true; };
   }, []);
 
-  const start = useCallback(async () => {
+  // Auto-boot when projectId becomes available
+  useEffect(() => {
+    if (!projectId || bootedRef.current) return;
+    boot();
+  }, [projectId]);
+
+  const boot = useCallback(async () => {
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+
+    clear();
+    const pid = projectId ?? 'demo';
+
     try {
-      clear();
       setStatus('booting');
+      append('Booting WebContainer...\n');
       await ensureContainer();
+      append('WebContainer ready.\n');
+
+      setStatus('mounting');
+      append(`Mounting project ${pid}...\n`);
+      await mountProject(pid);
+      append('Project files mounted.\n');
 
       setStatus('installing');
-      const pid = projectId ?? 'demo';
-      await mountDemoProject(pid);
-      await ensureDependenciesInstalled(appendLog);
+      append('Running npm install...\n');
+      await ensureDependenciesInstalled(append);
+      append('Dependencies installed.\n');
 
-      setStatus('running');
-      await startDevServer(appendLog);
-    } catch (e) {
-      appendLog(`\n${e instanceof Error ? e.message : 'Unknown error'}\n`);
+      setStatus('starting');
+      append('Starting dev server...\n');
+      await startDevServer(append);
+      // Status transitions to 'running' via server-ready event handler above
+
+    } catch (err) {
+      bootedRef.current = false; // Allow retry
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      append(`\nError: ${msg}\n`);
       setStatus('error');
     }
-  }, [appendLog, clear, projectId]);
+  }, [projectId, append, clear]);
 
-  const headerRight = useMemo(() => {
-    if (status === 'running') return 'Running';
-    if (status === 'installing') return 'Installing…';
-    if (status === 'booting') return 'Booting…';
-    if (status === 'error') return 'Error';
-    return 'Idle';
-  }, [status]);
+  const handleRestart = useCallback(() => {
+    bootedRef.current = false;
+    setPreviewUrl('');
+    setStatus('idle');
+    boot();
+  }, [boot]);
+
+  const handleOpenExternal = useCallback(() => {
+    if (previewUrl) window.open(previewUrl, '_blank');
+  }, [previewUrl]);
 
   return (
     <div className={styles.panel}>
-      <div className={styles.panelHeader} style={{ justifyContent: 'space-between' }}>
-        <span>Preview</span>
-        <span>{headerRight}</span>
-      </div>
-      <div className={styles.panelBody} style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gap: 10 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div className={styles.panelHeader} style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Preview — {STATUS_LABELS[status]}</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {previewUrl && (
+            <button
+              onClick={handleOpenExternal}
+              title="Open in new tab"
+              style={{ background: 'none', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, color: 'inherit', padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}
+            >
+              Open ↗
+            </button>
+          )}
           <button
-            type="button"
-            onClick={start}
-            disabled={status === 'booting' || status === 'installing'}
-            style={{
-              background: 'transparent',
-              color: 'inherit',
-              border: '1px solid rgba(255,255,255,0.18)',
-              borderRadius: 8,
-              padding: '6px 10px',
-              cursor: 'pointer'
-            }}
+            onClick={handleRestart}
+            disabled={status === 'booting' || status === 'mounting' || status === 'installing' || status === 'starting'}
+            title="Restart runtime"
+            style={{ background: 'none', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 4, color: 'inherit', padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}
           >
-            Start Runtime
+            Restart
           </button>
-          <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-            WebContainers (demo project) — local-only Phase 3
-          </span>
         </div>
+      </div>
 
-        {url ? (
+      <div className={styles.panelBody} style={{ padding: 0, position: 'relative' }}>
+        {previewUrl ? (
           <iframe
-            title="preview"
-            src={url}
-            style={{ width: '100%', height: '100%', border: 0, borderRadius: 10 }}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+            key={iframeKey}
+            title="Live Preview"
+            src={previewUrl}
+            style={{ width: '100%', height: '100%', border: 0 }}
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals"
           />
         ) : (
-          <pre
-            style={{
-              margin: 0,
-              height: '100%',
-              overflow: 'auto',
-              padding: 10,
-              border: '1px dashed rgba(255,255,255,0.18)',
-              borderRadius: 10,
-              color: 'rgba(255,255,255,0.65)'
-            }}
-          >
-            {logTail || 'Click “Start Runtime” to boot WebContainers, install deps, and start a dev server.'}
+          <pre style={{
+            margin: 0,
+            padding: 12,
+            height: '100%',
+            overflow: 'auto',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.6)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}>
+            {log || (status === 'idle' ? 'Runtime will start automatically when a project is loaded.' : 'Starting…')}
           </pre>
         )}
+
+        {/* Loading overlay during boot */}
+        {status !== 'idle' && status !== 'running' && status !== 'error' && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            gap: 12, pointerEvents: 'none',
+          }}>
+            <div style={{ width: 24, height: 24, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#58a6ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>{STATUS_LABELS[status]}</span>
+          </div>
+        )}
       </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

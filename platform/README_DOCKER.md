@@ -9,14 +9,14 @@ This directory contains a complete, containerized development environment for th
 
 2.  **Start the environment**:
     ```bash
-    npm run docker:dev
+    pnpm docker:dev
     ```
     This will start all infrastructure (Postgres, Redis, Kafka, Elasticsearch, MinIO) and all 14 microservices + the IDE frontend.
 
 3.  **Initialize the Database**:
     Once the `postgres` and `api-gateway` services are up, run:
     ```bash
-    npm run docker:db-init
+    pnpm docker:db-init
     ```
 
 ## 🛠 Services & Ports
@@ -25,25 +25,23 @@ This directory contains a complete, containerized development environment for th
 | Service | Port |
 | :--- | :--- |
 | **API Gateway** | [8000](http://localhost:8000) |
-| **WebSocket Gateway** | [8001](ws://localhost:8001) |
-| **Auth Service** | [8002](http://localhost:8002) |
-| **Project Service** | [8003](http://localhost:8003) |
+| **WebSocket Gateway** | [8012](ws://localhost:8012) |
+| **Auth Service** | [3100](http://localhost:3100) |
+| **Project Service** | [8002](http://localhost:8002) |
 | **Execution Service** | [8004](http://localhost:8004) |
-| **AI Service** | [8005](http://localhost:8005) |
+| **AI Service** | [8003](http://localhost:8003) |
 | **Billing Service** | [8006](http://localhost:8006) |
 | **Notification Service** | [8007](http://localhost:8007) |
-| **Collab Service** | [8008](http://localhost:8008) |
+| **Collab Service** | [8005](http://localhost:8005) |
 | **Storage Service** | [8009](http://localhost:8009) |
-| **Analytics Service** | [8010](http://localhost:8010) |
-| **Deployment Service** | [8011](http://localhost:8011) |
-| **Search Service** | [8013](http://localhost:8013) |
+| **Deployment Service** | [8010](http://localhost:8010) |
+| **Analytics Service** | [8011](http://localhost:8011) |
+| **Search Service** | [8008](http://localhost:8008) |
 
 ### Frontend Apps
 | App | Port |
 | :--- | :--- |
-| **IDE Frontend** | [3000](http://localhost:3000) |
-| **Marketing Site** | [3001](http://localhost:3001) |
-| **Admin Panel** | [3002](http://localhost:3002) |
+| **IDE Frontend** | [5173](http://localhost:5173) |
 
 ### Infrastructure
 | Infra | Port |

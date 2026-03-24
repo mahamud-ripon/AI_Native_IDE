@@ -23,12 +23,25 @@ redisClient.on('connect', () => {
   console.log('✅ Connected to Redis');
 });
 
+redlockClient.on('error', (err) => {
+  console.error('Redlock Redis Connection Error:', err);
+});
+
 // Distributed lock implementation
 export async function acquireLock(lockKey: string, ttlSeconds: number = 60): Promise<boolean> {
-  const result = await redlockClient.set(lockKey, '1', 'EX', ttlSeconds, 'NX');
-  return result === 'OK';
+  try {
+    const result = await redlockClient.set(lockKey, '1', 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
+  } catch (error) {
+    console.error('Failed to acquire lock:', error);
+    return false;
+  }
 }
 
 export async function releaseLock(lockKey: string): Promise<void> {
-  await redlockClient.del(lockKey);
+  try {
+    await redlockClient.del(lockKey);
+  } catch (error) {
+    console.error('Failed to release lock:', error);
+  }
 }

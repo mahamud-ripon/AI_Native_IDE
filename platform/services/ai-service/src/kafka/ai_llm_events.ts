@@ -1,19 +1,48 @@
-import { Kafka, Producer } from 'kafkajs';
+import { Producer } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 import type { LLMProvider } from '../llm/types.js';
 
 let producer: Producer | null = null;
+let isConnecting = false;
 
 export async function getProducer(): Promise<Producer> {
-  if (!producer) {
-    const kafka = new Kafka({
-      clientId: 'ai-service-llm',
-      brokers: config.kafkaBrokers.split(','),
-    });
-    producer = kafka.producer();
-    await producer.connect();
+  // If producer exists and has a valid connection, return it
+  if (producer) {
+    return producer;
   }
-  return producer;
+
+  // Prevent concurrent connection attempts
+  if (isConnecting) {
+    // Wait for existing connection attempt to complete
+    while (isConnecting) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return producer!;
+  }
+
+  isConnecting = true;
+  try {
+    const kafka = createKafkaClient({ clientId: 'ai-service-llm' });
+    producer = kafka.producer();
+    
+    await producer.connect();
+    console.log('[KafkaProducer] Connected successfully');
+    
+    // Set up disconnect handler to reset producer
+    producer.on(producer.events.DISCONNECT, () => {
+      console.log('[KafkaProducer] Producer disconnected event received');
+      producer = null;
+    });
+    
+    return producer;
+  } catch (error) {
+    console.error('[KafkaProducer] Failed to connect:', error);
+    producer = null;
+    throw error;
+  } finally {
+    isConnecting = false;
+  }
 }
 
 export type LLMCallCompletedEvent = {

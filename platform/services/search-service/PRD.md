@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** search-service (Port 8008)  
-> **Tech Stack:** Node.js + Express + Elasticsearch + Kafka
+> **Tech Stack:** Node.js + Fastify + Elasticsearch + Redpanda (Kafka-compatible)
 
 ---
 
@@ -21,7 +21,7 @@ The Search Service provides full-text code search within projects, file name sea
 mkdir -p search-service/src/{controllers,services,indexers,events,lib,config,mappings}
 cd search-service
 npm init -y
-npm install express @elastic/elasticsearch kafkajs zod dotenv cors helmet
+npm install fastify @fastify/cors @fastify/helmet @elastic/elasticsearch kafkajs zod dotenv
 npm install -D typescript @types/node ts-node
 npx tsc --init
 ```
@@ -39,13 +39,13 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
     "@elastic/elasticsearch": "^8.11.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
-    "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0"
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
@@ -355,7 +355,7 @@ function sanitizeQuery(query: string): string {
 ### 6.1 Code Search Controller (src/controllers/code_search_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { esClient } from '../services/elasticsearch_client';
 import { QueryBuilder } from '../services/query_builder';
 import { PermissionService } from '../services/permission_srv';
@@ -434,7 +434,7 @@ export const CodeSearchController = {
 ### 6.2 File Search Controller (src/controllers/file_search_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { esClient } from '../services/elasticsearch_client';
 import { QueryBuilder } from '../services/query_builder';
 import { PermissionService } from '../services/permission_srv';
@@ -492,7 +492,7 @@ export const FileSearchController = {
 ### 6.3 Project Discovery Controller (src/controllers/project_discovery_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { esClient } from '../services/elasticsearch_client';
 import { QueryBuilder } from '../services/query_builder';
 
@@ -789,40 +789,30 @@ export const PermissionService = {
 ### 10.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { CodeSearchController } from './controllers/code_search_controller';
 import { FileSearchController } from './controllers/file_search_controller';
 import { ProjectDiscoveryController } from './controllers/project_discovery_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'search-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'search-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Search endpoints
-app.get('/api/v1/search/code', authMiddleware, CodeSearchController.searchCode);
-app.get('/api/v1/search/files', authMiddleware, FileSearchController.searchFiles);
+app.get('/api/v1/search/code', { preHandler: authMiddleware }, CodeSearchController.searchCode);
+app.get('/api/v1/search/files', { preHandler: authMiddleware }, FileSearchController.searchFiles);
 app.get('/api/v1/search/projects', ProjectDiscoveryController.discoverProjects);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
 
 export { app };
 ```

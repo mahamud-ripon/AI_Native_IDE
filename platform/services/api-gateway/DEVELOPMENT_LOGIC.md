@@ -1,6 +1,6 @@
 # 🚪 API Gateway — Development Logic & Architecture
 
-> **Target:** `services/api-gateway/` (Node.js/Fastify, Go, or Kong/Nginx)
+> **Target:** `services/api-gateway/` (Node.js/Fastify Custom Gateway)
 > **Goal:** The absolute front door of the backend platform. All HTTP traffic from the React frontend, IDE client, and external APIs hits here first before being routed to downstream microservices.
 > **Standard:** Microsecond latency. Zero tolerance for security bypasses. Robust circuit-breaking.
 
@@ -38,23 +38,24 @@ src/
 - **Constraint:** Hardcoding IP addresses or ports of microservices is strictly forbidden.
 - **Logic:**
   - Route configurations must read from environment variables or a service mesh (e.g., Kubernetes CoreDNS).
-  - **Complete Routing Map (ALL services):**
-    - `^/api/v1/auth/(.*)$` ➔ `http://auth-service:8001/$1`
-    - `^/api/v1/projects/(.*)$` ➔ `http://project-service:8002/$1`
-    - `^/api/v1/billing/(.*)$` ➔ `http://billing-service:8003/$1`
-    - `^/api/v1/ai/(.*)$` ➔ `http://ai-service:8004/$1`
-    - `^/api/v1/exec/(.*)$` ➔ `http://execution-service:8005/$1`
-    - `^/api/v1/search/(.*)$` ➔ `http://search-service:8006/$1`
-    - `^/api/v1/deploy/(.*)$` ➔ `http://deployment-service:8007/$1`
-    - `^/api/v1/storage/(.*)$` ➔ `http://storage-service:8008/$1` _(file upload: max 50MB body)_
-    - `^/api/v1/templates/(.*)$` ➔ `http://project-service:8002/templates/$1`
-    - `^/api/v1/packages/(.*)$` ➔ `http://execution-service:8005/packages/$1`
-    - `^/api/v1/admin/analytics/(.*)$` ➔ `http://analytics-service:8009/$1`
-    - `^/api/v1/admin/feature-flags/(.*)$` ➔ `http://analytics-service:8009/feature-flags/$1`
-    - `^/api/v1/admin/(.*)$` ➔ `http://project-service:8002/admin/$1` _(user mgmt, reports)_
-    - `^/api/v1/notifications/(.*)$` ➔ `http://notification-service:8010/$1`
-  - **WebSocket Upgrade** (NOT proxied through HTTP routing):
-    - `wss://ws.platform.io/gateway` ➔ `http://websocket-gateway:8011/` _(handled by separate Nginx upstream)_
+- **Complete Routing Map (ALL services):**
+  - `^/api/v1/auth/(.*)$` ➔ `http://auth-service:3100/$1`
+  - `^/api/v1/projects/(.*)$` ➔ `http://project-service:8002/$1`
+  - `^/api/v1/billing/(.*)$` ➔ `http://billing-service:8006/$1`
+  - `^/api/v1/ai/(.*)$` ➔ `http://ai-service:8003/$1`
+  - `^/api/v1/exec/(.*)$` ➔ `http://execution-service:8004/$1`
+  - `^/api/v1/search/(.*)$` ➔ `http://search-service:8008/$1`
+  - `^/api/v1/deploy/(.*)$` ➔ `http://deployment-service:8010/$1`
+  - `^/api/v1/storage/(.*)$` ➔ `http://storage-service:8009/$1` _(file upload: max 50MB body)_
+  - `^/api/v1/templates/(.*)$` ➔ `http://project-service:8002/templates/$1`
+  - `^/api/v1/packages/(.*)$` ➔ `http://execution-service:8004/packages/$1`
+  - `^/api/v1/admin/analytics/(.*)$` ➔ `http://analytics-service:8011/$1`
+  - `^/api/v1/admin/feature-flags/(.*)$` ➔ `http://analytics-service:8011/feature-flags/$1`
+  - `^/api/v1/admin/(.*)$` ➔ `http://project-service:8002/admin/$1` _(user mgmt, reports)_
+  - `^/api/v1/notifications/(.*)$` ➔ `http://notification-service:8007/$1`
+  - `^/api/v1/collab/(.*)$` ➔ `http://collab-service:8005/$1`
+- **WebSocket Upgrade** (NOT proxied through HTTP routing):
+  - `wss://ws.platform.io/gateway` ➔ `http://websocket-gateway:8012/` _(handled by separate Nginx upstream)_
 
 ### 3. Circuit Breaker Pattern (Cascading Failure Protection)
 
@@ -70,7 +71,7 @@ src/
 - **Logic:**
   - **Payload Size & Deep JSON:** Reject any HTTP POST/PUT body > 2MB. Furthermore, the middleware MUST enforce a max JSON nesting depth (e.g., 20) and drop payloads with prototype pollution vectors (`__proto__`, `constructor`) before passing them to backend JSON parsers.
   - **Auth-Aware Rate Limiting (Critical):** The global rate limiter MUST NOT blindly rate-limit by IP for authenticated routes. Standard IP rate limiting will permanently block 1,000 developers behind a single corporate/university NAT. It MUST rate limit by `X-User-Id` (derived from the JWT), and fall back to IP _only_ for anonymous endpoints (e.g., `/login` or `/api/v1/public`).
-  - **CORS:** Only allow origins from `https://platform.io`, `https://*.platform.io`, and `http://localhost:3000` (in dev). Reject all others.
+  - **CORS:** Only allow origins from `https://platform.io`, `https://*.platform.io`, and `http://localhost:5173` (in dev). Reject all others.
   - **Headers:** Strip out any custom headers from the client that try to spoof internal states (e.g., if a hacker sends `X-User-Id: 123` from their browser, the Gateway MUST drop it and override it with the real one from the JWT).
 
 ### 5. Datadog / ELK Tracing
@@ -100,10 +101,10 @@ src/
 
 #### 1.1 Verify Port Numbers Match System Design
 
-- **Current:** Routes use ports 8001-8011
-- **Required:** Update to match system design ports (8001-8011)
+- **Current:** Routes updated to match actual implementation
+- **Correct ports:** auth:3100, project:8002, ai:8003, exec:8004, collab:8005, billing:8006, notification:8007, search:8008, storage:8009, deploy:8010, analytics:8011, ws-gateway:8012
 - **Files:** `src/routes/proxy_router.ts`
-- **Reference:** `@analysis_report.md` Section 3.1
+- **Reference:** `platform/.env` service URLs
 
 #### 1.2 Add API Versioning Strategy
 

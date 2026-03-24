@@ -78,6 +78,10 @@ class WebSocketMultiplexer {
       return Promise.resolve();
     }
 
+    // Store URL and token for reconnection
+    this.wsUrl = wsUrl;
+    this.wsToken = token ?? null;
+
     this.state.connecting = true;
     this.notifyStateChange();
 

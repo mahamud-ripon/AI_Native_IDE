@@ -12,17 +12,20 @@
 
 | Path Pattern | Destination | Auth Required |
 |--------------|-------------|---------------|
-| `/api/v1/auth/*` | auth-service:8001 | No |
+| `/api/v1/auth/*` | auth-service:3100 | No |
 | `/api/v1/projects/*` | project-service:8002 | Yes |
 | `/api/v1/ai/*` | ai-service:8003 | Yes |
+| `/api/v1/agents/*` | python-agents:9000 | Yes |
 | `/api/v1/exec/*` | execution-service:8004 | Yes |
 | `/api/v1/collab/*` | collab-service:8005 | Yes |
 | `/api/v1/billing/*` | billing-service:8006 | Yes |
 | `/api/v1/notifications/*` | notification-service:8007 | Yes |
 | `/api/v1/search/*` | search-service:8008 | Yes |
-| `/api/v1/deploy/*` | deployment-service:8011 | Yes |
+| `/api/v1/deploy/*` | deployment-service:8010 | Yes |
 | `/api/v1/storage/*` | storage-service:8009 | Yes |
-| `/api/v1/admin/*` | analytics-service:8010 | Yes |
+| `/api/v1/admin/analytics/*` | analytics-service:8011 | Yes |
+| `/api/v1/admin/feature-flags/*` | analytics-service:8011 | Yes |
+| `/api/v1/admin/*` | project-service:8002 | Yes |
 | `/api/v1/templates/*` | project-service:8002 | Yes |
 | `/api/v1/packages/*` | execution-service:8004 | Yes |
 
@@ -98,7 +101,7 @@ Content-Type: application/json
 
 ---
 
-## 2. Auth Service (Port 8001)
+## 2. Auth Service (Port 3100)
 
 ### Endpoints
 
@@ -1065,7 +1068,7 @@ Content-Type: application/json
 
 ---
 
-## 9. Deployment Service (Port 8011)
+## 9. Deployment Service (Port 8010)
 
 ### Endpoints
 
@@ -1299,7 +1302,7 @@ Content-Type: application/json
 
 ---
 
-## 12. Analytics Service (Port 8010)
+## 12. Analytics Service (Port 8011)
 
 ### Endpoints
 

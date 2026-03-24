@@ -19,6 +19,8 @@ import {
   subscribeToWorkflowEvents,
   publishAgentStream,
   publishWorkflowEvent,
+  subscribeToTaskExecution,
+  subscribeToWorkspaceExecution,
   RealtimeMessage,
 } from './redis_stream_bridge.js';
 
@@ -122,11 +124,6 @@ async function handleConnection(
   const userId = url.searchParams.get('userId') || 'anonymous';
   const projectId = url.searchParams.get('projectId') || '';
 
-  if (!projectId) {
-    ws.close(4001, 'projectId required');
-    return;
-  }
-
   // Generate connection ID
   const connectionId = `conn_${randomUUID()}`;
 
@@ -140,13 +137,15 @@ async function handleConnection(
   // Register connection
   await pubSubRegistry.registerConnection(connectionId, userId, projectId);
 
-  // Subscribe to project channel
-  await subscribeToProject(projectId, handleRedisMessage);
+  // Subscribe to project channel if projectId provided
+  if (projectId) {
+    await subscribeToProject(projectId, handleRedisMessage);
+  }
 
   // Store connection
   connections.set(connectionId, wsMeta);
 
-  console.log(`[WebSocketGateway] Connection established: ${connectionId} (user: ${userId}, project: ${projectId})`);
+  console.log(`[WebSocketGateway] Connection established: ${connectionId} (user: ${userId}, project: ${projectId || 'none'})`);
 
   // Set up message handler
   ws.on('message', (data: Buffer) => handleMessage(wsMeta, data));
@@ -222,6 +221,7 @@ async function handleMessage(ws: WebSocketWithMeta, data: Buffer): Promise<void>
         if (message.taskId) {
           const channel = `execution:task:${message.taskId}`;
           await pubSubRegistry.subscribe(ws.connectionId, channel);
+          await subscribeToTaskExecution(message.taskId, handleRedisMessage);
           send(ws, { 
             type: 'execution.subscribed', 
             taskId: message.taskId,
@@ -231,6 +231,7 @@ async function handleMessage(ws: WebSocketWithMeta, data: Buffer): Promise<void>
           // Subscribe to all tasks in workspace
           const channel = `execution:workspace:${message.workspaceId}`;
           await pubSubRegistry.subscribe(ws.connectionId, channel);
+          await subscribeToWorkspaceExecution(message.workspaceId, handleRedisMessage);
           send(ws, { 
             type: 'execution.subscribed', 
             workspaceId: message.workspaceId,
@@ -294,9 +295,11 @@ async function handleClose(ws: WebSocketWithMeta): Promise<void> {
   connections.delete(ws.connectionId);
 
   // Unsubscribe from project channel if no more connections
-  const projectConnections = await pubSubRegistry.getProjectConnections(ws.projectId);
-  if (projectConnections.length === 0) {
-    await unsubscribeFromProject(ws.projectId);
+  if (ws.projectId) {
+    const projectConnections = await pubSubRegistry.getProjectConnections(ws.projectId);
+    if (projectConnections.length === 0) {
+      await unsubscribeFromProject(ws.projectId);
+    }
   }
 }
 

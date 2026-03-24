@@ -109,22 +109,22 @@ export const PresignedUrlService = {
    * Validate content type against allowlist
    */
   isContentTypeAllowed(contentType: string): boolean {
-    // Allow wildcard text/* types
-    if (contentType.startsWith('text/')) {
+    // Check exact match first
+    if (ALLOWED_CONTENT_TYPES.includes(contentType)) {
       return true;
     }
-    // Allow wildcard application/* for certain types
-    if (contentType.startsWith('application/') && ALLOWED_CONTENT_TYPES.includes(contentType)) {
-      return true;
-    }
-    return ALLOWED_CONTENT_TYPES.includes(contentType);
+    // Allow specific application/* types that are in the allowlist (already checked above)
+    // Do NOT allow wildcard text/* to prevent text/x-shellscript, text/x-php, etc.
+    return false;
   },
 
   /**
    * Check if file extension is blocked
    */
   isExtensionBlocked(filename: string): boolean {
-    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    const dotIndex = filename.lastIndexOf('.');
+    if (dotIndex === -1) return false; // No extension = not blocked
+    const ext = filename.substring(dotIndex).toLowerCase();
     return BLOCKED_EXTENSIONS.includes(ext);
   },
 
@@ -132,7 +132,9 @@ export const PresignedUrlService = {
    * Get MIME type from file extension
    */
   getMimeTypeFromExtension(filename: string): string {
-    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    const dotIndex = filename.lastIndexOf('.');
+    if (dotIndex === -1) return 'application/octet-stream';
+    const ext = filename.substring(dotIndex).toLowerCase();
     return EXTENSION_TO_MIME[ext] || 'application/octet-stream';
   },
 
@@ -192,6 +194,11 @@ export const PresignedUrlService = {
     const projectId = pathParts[1]; // projects/[projectId]/files/...
 
     if (projectId) {
+      // Validate projectId against path traversal
+      if (projectId === '..' || projectId === '.' || projectId.includes('/') || projectId.includes('\\')) {
+        throw new Error('Invalid project ID in key path');
+      }
+
       // Verify user has editor access to the project
       const hasAccess = await PermissionService.checkAccess(userId, projectId, 'editor');
       if (!hasAccess) {
@@ -227,6 +234,11 @@ export const PresignedUrlService = {
     const projectId = pathParts[1];
 
     if (projectId) {
+      // Validate projectId against path traversal
+      if (projectId === '..' || projectId === '.' || projectId.includes('/') || projectId.includes('\\')) {
+        throw new Error('Invalid project ID in key path');
+      }
+
       // Verify user has viewer access to the project
       const hasAccess = await PermissionService.checkAccess(userId, projectId, 'viewer');
       if (!hasAccess) {

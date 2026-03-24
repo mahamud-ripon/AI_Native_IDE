@@ -278,8 +278,12 @@ class GroqClient {
 
 export const groqClient = new GroqClient();
 
-// Initialize with user-provided API key
-groqClient.setApiKey('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');
+// Initialize from environment variable only — never hardcode secrets in source
+// Set VITE_GROQ_API_KEY in apps/ide/.env.local for local development
+const _envKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
+if (_envKey) {
+  groqClient.setApiKey(_envKey);
+}
 
 // ========================================
 // AI ASSISTANT SYSTEM PROMPT

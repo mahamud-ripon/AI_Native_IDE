@@ -1,5 +1,5 @@
-import dotenv from 'dotenv';
-dotenv.config();
+// Validate environment variables at startup
+import '@workspace/config/env';
 
 import { config } from './config/index';
 import { logger } from './lib/logger';

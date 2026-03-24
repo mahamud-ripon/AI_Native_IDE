@@ -1,4 +1,5 @@
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { redisClient } from '../lib/redis.js';
 import { getQueue } from './queue_consumer.js';
 
@@ -8,10 +9,7 @@ const logger = {
   warn: (msg: string) => console.warn(`[Kafka Consumer] ${msg}`),
 };
 
-const kafka = new Kafka({
-  clientId: 'background-worker',
-  brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
-});
+const kafka = createKafkaClient({ clientId: 'background-worker', groupId: process.env.KAFKA_GROUP_ID || 'background-worker' });
 
 const consumer = kafka.consumer({ groupId: process.env.KAFKA_GROUP_ID || 'background-worker' });
 
@@ -72,7 +70,11 @@ export async function startKafkaConsumer(): Promise<void> {
   }
 }
 
-async function handleKafkaEvent(topic: string, payload: any): Promise<void> {
+async function handleKafkaEvent(topic: string, envelope: any): Promise<void> {
+  // After Bug #10 fix, events use KafkaEventEnvelope with nested payload
+  // Extract the actual payload from the envelope
+  const payload = envelope.payload || envelope;
+  
   switch (topic) {
     case 'user.created':
       await handleUserCreated(payload);

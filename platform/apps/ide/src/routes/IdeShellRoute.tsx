@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 
-import { IdeShell } from '../shell/IdeShell';
+import { IdeShell } from '../components/layout/IdeShell';
 
 interface IdeShellRouteProps {
   projectId?: string;
@@ -15,8 +15,14 @@ export function IdeShellRoute({ projectId: propProjectId, filePath: propFilePath
   const projectId = propProjectId || paramProjectId || 'demo';
   const filePath = useMemo(() => {
     if (propFilePath) return propFilePath;
-    if (splat) return decodeURIComponent(splat);
-    return 'src/index.ts'; // Default file
+    if (splat) {
+      try {
+        return decodeURIComponent(splat);
+      } catch {
+        return splat;
+      }
+    }
+    return undefined;
   }, [propFilePath, splat]);
 
   return <IdeShell projectId={projectId} filePath={filePath} />;

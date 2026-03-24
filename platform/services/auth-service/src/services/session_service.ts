@@ -11,14 +11,14 @@ export const SessionService = {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    await prisma.refresh_token.create({
+    await prisma.refreshToken.create({
       data: {
-        user_id: userId,
-        token: hashedToken, // Only store hashed token in database
-        expires_at: expiresAt,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-        is_revoked: false
+        userId: userId,
+        tokenHash: hashedToken, // Only store hashed token in database
+        expiresAt: expiresAt,
+        ipAddress: ipAddress,
+        deviceInfo: userAgent,
+        isRevoked: false
       }
     });
 
@@ -30,28 +30,28 @@ export const SessionService = {
     const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
     
     // Check if token exists, isn't revoked, and hasn't expired
-    const record = await prisma.refresh_token.findFirst({
-      where: { token: hashedToken }
+    const record = await prisma.refreshToken.findFirst({
+      where: { tokenHash: hashedToken }
     });
 
-    if (!record || record.is_revoked || record.expires_at < new Date()) {
+    if (!record || record.isRevoked || record.expiresAt < new Date()) {
       return null; // Invalid token or hijacked session
     }
 
     // Immediately revoke old token
-    await prisma.refresh_token.update({
+    await prisma.refreshToken.update({
       where: { id: record.id },
-      data: { is_revoked: true }
+      data: { isRevoked: true }
     });
 
     // Issue a completely new pair
-    return await SessionService.issueRefreshToken(record.user_id, ipAddress, userAgent);
+    return await SessionService.issueRefreshToken(record.userId, ipAddress, userAgent);
   },
 
   revokeAllSessions: async (userId: string) => {
-    await prisma.refresh_token.updateMany({
-      where: { user_id: userId },
-      data: { is_revoked: true }
+    await prisma.refreshToken.updateMany({
+      where: { userId: userId },
+      data: { isRevoked: true }
     });
   }
 };

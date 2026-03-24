@@ -1,13 +1,11 @@
-import { Kafka, Consumer } from 'kafkajs';
+import { Consumer } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 import { StripeClient } from '../services/stripe_client.js';
 import { SubscriptionService } from '../services/subscription_srv.js';
 import { prisma } from '../lib/prisma.js';
 
-const kafka = new Kafka({
-  clientId: 'billing-service-consumer',
-  brokers: config.kafkaBrokers,
-});
+const kafka = createKafkaClient({ clientId: 'billing-service-consumer', groupId: 'billing-service' });
 
 const consumer: Consumer = kafka.consumer({ groupId: 'billing-service' });
 

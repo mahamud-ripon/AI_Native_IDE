@@ -114,7 +114,7 @@ into five distinct layers:
 | |
 | │ API GATEWAY + AUTH LAYER │ |
 | |
-| │ Kong Gateway · JWT Validation · Rate Limiting │ |
+| │ Fastify Gateway · JWT Validation · Rate Limiting │ |
 | |
 | └────────┬────────────────┬─────────────┬───────────────┬─────────┘ |
 | |
@@ -124,11 +124,11 @@ into five distinct layers:
 | |
 | │ Auth Service │ │ AI Service │ │ Collab Svc │ │ Project Svc │ |
 | |
-| │ (Keycloak) │ │ (Orchestr.) │ │ (Yjs) │ │ (CRUD+Git) │ |
+| │ (JWT Auth) │ │ (Orchestr.) │ │ (Yjs) │ │ (CRUD+Git) │ |
 | |
 | └───────────────┘ └──────┬──────┘ └────────────┘ └──────────────┘ |
 | |
-| │ Kafka |
+| │ Kafka/Redpanda Cloud (development only) │ |
 | |
 | ┌─────────────────────────▼───────────────────────────────────────┐ |
 | |
@@ -144,8 +144,7 @@ into five distinct layers:
 | ┌─────────────────────────▼───────────────────────────────────────┐ |
 | |
 | │ DATA LAYER │ |
-| |
-| │ PostgreSQL · Redis · S3/MinIO · Elasticsearch │ |
+| │Posytgresql/Neon (PostgreSQL) · redis/Upstash (Redis) · S3/MinIO · Elasticsearch │ |
 | |
 | └─────────────────────────────────────────────────────────────────┘ |
 +-----------------------------------------------------------------------+
@@ -167,11 +166,11 @@ editor industry standard
 **Realtime** Yjs + y-websocket CRDT collaboration Conflict-free,
 offline-first
 
-**API Gateway** Kong (OSS) Traffic management Plugin ecosystem,
-rate limiting
+**API Gateway** Custom Fastify Gateway Rate limiting, circuit breaker,
+auth validation, request proxying
 
-**Auth** Keycloak Identity provider OIDC/OAuth2,
-enterprise SSO
+**Auth** Custom Auth Service Custom JWT-based auth with
+( Fastify + TypeScript) refresh tokens, OAuth2 providers
 
 **AI LangGraph + Multi-agent workflows Stateful agent
 Orchestration** Claude API graphs
@@ -185,14 +184,15 @@ Runtime** containerd KVM-based
 **Orchestration** Kubernetes Service orchestration Auto-scaling,
 (K3s/EKS) self-healing
 
-**Message Queue** Apache Kafka Event streaming High-throughput,
-durable
+**Message Queue**Apache Kafka/Redpanda Cloud (for development only) Event streaming Fully managed,
+(Kafka-compatible) Kafka API, KRaft mode
+no Zookeeper
 
-**Primary DB** PostgreSQL 16 Relational data ACID, JSON support,
-mature
+**Primary DB** PostgreSQL 16 Relational data ACID, JSON support/ (for development only)Neon.tech (PostgreSQL 16) Managed PostgreSQL Serverless,
+auto-scaling, branch
 
-**Cache** Redis Cluster Session + cache layer Sub-ms latency,
-pub/sub
+**Cache** Redis Cluster Session + cache layer Sub-ms latency/(for development only)Upstash Redis Managed Redis Serverless,
+REST API, edge-ready
 
 **Object Storage** S3 / MinIO Files, artifacts, Cost-effective,
 logs scalable
@@ -549,16 +549,14 @@ Error Fixes / Lints Tier 3 (Local/OSS) Llama-3 70B
 ---
 
 **Service** **Port** **Responsibility**
-
 ---
-
-api-gateway 8000 Kong --- routing, auth
+api-gateway 8000 Fastify --- routing, auth
 validation, rate
-limiting, SSL termination
+limiting, request proxying
 
-auth-service 8001 Keycloak --- user
-registration, login,
+auth-service 3100 User registration, login,
 OAuth2, JWT issuance
+(Note: moved from 8001 to avoid conflict)
 
 project-service 8002 Project CRUD, Git
 operations, file tree
@@ -566,7 +564,8 @@ management
 
 ai-service 8003 TypeScript/LangChain wrapper,
 agent API gateway,
-streaming SSE, circuit breaker
+streaming SSE, circuit
+breaker
 
 execution-service 8004 Firecracker VM
 management, code
@@ -591,11 +590,11 @@ search, project discovery
 storage-service 8009 S3/MinIO proxy --- file
 uploads, artifact storage
 
-analytics-service 8010 Usage tracking,
+analytics-service 8011 Usage tracking,
 telemetry, feature flag
 evaluation
 
-deployment-service 8011 One-click deploy to
+deployment-service 8010 One-click deploy to
 Vercel, Railway, AWS,
 GCP, Azure
 
@@ -738,14 +737,14 @@ When the AI Backend/Frontend agent adds dependencies, the `project-service` invo
 **Database** **Usage**
 
 ---
-
-PostgreSQL (Primary) Users, projects, organizations,
+<!-- PostgreSQL (Primary) Users, projects, organizations, -->
+Neon.tech (only for development) (PostgreSQL) Users, projects, organizations,
 billing, audit logs
 
-PostgreSQL + pgvector Code embeddings for RAG-based AI
+Neon + pgvector Code embeddings for RAG-based AI
 context
 
-Redis Cluster Sessions, VM pool state, pub/sub,
+Upstash (only for development) Redis Sessions, VM pool state, pub/sub,
 distributed locks
 
 Elasticsearch Full-text code search, log
@@ -1075,8 +1074,8 @@ and relationships, see: Interactive_Schema_Design_ERD.md
 
 - Versioning: URL-based (/v1, /v2) with 12-month deprecation policy
 
-- Rate Limiting: Per-user sliding window via Kong (Free: 60 req/min,
-  Pro: 600 req/min)
+- Rate Limiting: Per-user sliding window via Fastify Gateway (Free: 60 req/min,
+Pro: 600 req/min)
 
 - Pagination: Cursor-based for all list endpoints (no offset
   pagination)
@@ -1658,7 +1657,7 @@ failure:
 | (Cloudflare) |
 | |
 | Layer 3 --- Gateway: JWT validation, OAuth2 scopes, request signing |
-| (Kong) |
+| (Fastify) |
 | |
 | Layer 4 --- App: RBAC, input validation (Zod), parameterized |
 | queries |
@@ -1686,8 +1685,8 @@ failure:
 - API Keys: Scoped, rotatable, stored as bcrypt hashes (never
   plaintext)
 
-- OAuth2: GitHub and Google providers via Keycloak; SAML for
-  enterprise SSO
+- OAuth2: GitHub and Google providers via custom auth service;
+SAML for enterprise SSO (future)
 
 **7.3 VM Sandbox Security**
 
@@ -2040,8 +2039,8 @@ detection, service maps
 
 Sprint 1–2 Foundation Monorepo setup, CI/CD,
 local Docker Compose dev
-stack, auth service (
-Keycloak), user DB schema
+stack, auth service (custom
+Fastify), user DB schema
 (users, oauth_accounts,
 refresh_tokens, api_keys,
 user_settings — §5.2.1)
@@ -2275,7 +2274,7 @@ WAF Web Application Firewall
 
 - LangGraph Agent Framework: https://langchain-ai.github.io/langgraph
 
-- Kong API Gateway: https://docs.konghq.com
+- Fastify Framework: https://fastify.dev
 
 - OWASP Top 10 (2021): https://owasp.org/Top10
 

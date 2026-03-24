@@ -72,21 +72,25 @@ export async function fullProjectReindex(data: { projectId: string }): Promise<v
   logger.info(`Starting full reindex for project ${projectId}`);
 
   try {
-    // Get checkpoint from Redis for resumable reindexing
+    // Get checkpoint from Redis for resumable reindexing (stores last file ID)
     const checkpointKey = `embedding:reindex:${projectId}`;
     const checkpoint = await redisClient.get(checkpointKey);
-    const startOffset = checkpoint ? parseInt(checkpoint, 10) : 0;
-
-    let processed = startOffset;
+    let lastFileId = checkpoint || '';
+    let processed = 0;
     let hasMore = true;
 
     while (hasMore) {
-      // Fetch batch of files
+      // Fetch batch of files using cursor-based pagination (avoids N² offset issue)
       const files = await prisma.projectFile.findMany({
-        where: { projectId },
+        where: { 
+          projectId,
+          deletedAt: null, // ❌ Critical: Exclude soft-deleted files
+          isDirectory: false, // Only process actual files, not directories
+          ...(lastFileId ? { id: { gt: lastFileId } } : {}), // Cursor-based: get files after lastFileId
+        },
         select: { id: true, inlineContent: true, path: true, language: true },
-        skip: processed,
         take: BATCH_SIZE,
+        orderBy: { id: 'asc' }, // Consistent ordering for cursor pagination
       });
 
       if (files.length === 0) {
@@ -108,12 +112,13 @@ export async function fullProjectReindex(data: { projectId: string }): Promise<v
             logger.error(`Failed to embed file ${file.id}:`, error.message);
           }
         }
+        lastFileId = file.id; // Update cursor to current file ID
       }
 
-      // Update checkpoint
-      await redisClient.set(checkpointKey, processed.toString());
+      // Update checkpoint with last processed file ID
+      await redisClient.set(checkpointKey, lastFileId);
 
-      logger.info(`Reindex progress: ${processed} files processed`);
+      logger.info(`Reindex progress: ${processed} files processed, last ID: ${lastFileId}`);
 
       // Small delay to prevent overwhelming the system
       await new Promise(resolve => setTimeout(resolve, 100));

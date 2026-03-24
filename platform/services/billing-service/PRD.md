@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** billing-service (Port 8006)  
-> **Tech Stack:** Node.js + Express + Prisma + Redis + Stripe
+> **Tech Stack:** Node.js + Fastify + Prisma + Redis + Stripe
 
 ---
 
@@ -21,7 +21,7 @@ The Billing Service is the Single Source of Truth (SSOT) for platform subscripti
 mkdir -p billing-service/src/{controllers,services,workers,middleware,events,lib,config}
 cd billing-service
 npm init -y
-npm install express stripe ioredis @prisma/client kafkajs zod dotenv cors helmet
+npm install fastify @fastify/cors @fastify/helmet stripe ioredis @prisma/client kafkajs zod dotenv
 npm install -D typescript @types/node @types/express ts-node prisma
 npx tsc --init
 ```
@@ -39,22 +39,22 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
     "stripe": "^14.0.0",
     "ioredis": "^5.3.2",
-    "@prisma/client": "^5.8.0",
+    "@prisma/client": "^5.10.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
-    "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0"
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "@types/express": "^4.17.21",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -515,7 +515,7 @@ export const MeteringService = {
 ### 7.1 Checkout Controller (src/controllers/checkout_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { StripeClient } from '../services/stripe_client';
 import { prisma } from '../lib/prisma';
 import { config } from '../config';
@@ -598,7 +598,7 @@ export const CheckoutController = {
 ### 7.2 Webhook Controller (src/controllers/webhooks_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { StripeClient } from '../services/stripe_client';
 import { SubscriptionService } from '../services/subscription_srv';
 import { PlanType, SubStatus } from '@prisma/client';
@@ -680,7 +680,7 @@ export const WebhookController = {
 ### 7.3 Usage Controller (src/controllers/usage_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { MeteringService } from '../services/metering_srv';
 import { SubscriptionService } from '../services/subscription_srv';
 import { prisma } from '../lib/prisma';
@@ -794,7 +794,7 @@ export const UsageController = {
 ### 7.4 Subscription Controller (src/controllers/subscription_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { SubscriptionService } from '../services/subscription_srv';
 import { prisma } from '../lib/prisma';
 
@@ -1100,9 +1100,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 ### 11.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { CheckoutController } from './controllers/checkout_controller';
@@ -1110,56 +1110,38 @@ import { WebhookController } from './controllers/webhooks_controller';
 import { UsageController } from './controllers/usage_controller';
 import { SubscriptionController } from './controllers/subscription_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-// Security middleware
-app.use(helmet());
-app.use(cors());
-
-// Raw body for webhook
-app.use('/api/v1/billing/webhooks/stripe', express.raw({ type: 'application/json' }));
-
-// JSON body parser for other routes
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'billing-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'billing-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Public endpoints
-app.get('/api/v1/billing/plans', (req: Request, res: Response) => {
-  res.json({
-    plans: [
-      { id: 'FREE', name: 'Free', price: 0, limits: { aiTokens: 10000, computeMinutes: 100, storageGb: 1 }},
-      { id: 'PRO', name: 'Pro', price: 29, limits: { aiTokens: 1000000, computeMinutes: 5000, storageGb: 50 }},
-      { id: 'TEAM', name: 'Team', price: 99, limits: { aiTokens: 5000000, computeMinutes: 20000, storageGb: 200 }},
-      { id: 'ENTERPRISE', name: 'Enterprise', price: 'custom', limits: { aiTokens: -1, computeMinutes: -1, storageGb: -1 }}
-    ]
-  });
-});
+app.get('/api/v1/billing/plans', async () => ({
+  plans: [
+    { id: 'FREE', name: 'Free', price: 0, limits: { aiTokens: 10000, computeMinutes: 100, storageGb: 1 }},
+    { id: 'PRO', name: 'Pro', price: 29, limits: { aiTokens: 1000000, computeMinutes: 5000, storageGb: 50 }},
+    { id: 'TEAM', name: 'Team', price: 99, limits: { aiTokens: 5000000, computeMinutes: 20000, storageGb: 200 }},
+    { id: 'ENTERPRISE', name: 'Enterprise', price: 'custom', limits: { aiTokens: -1, computeMinutes: -1, storageGb: -1 }}
+  ]
+}));
 
 // Protected endpoints
-app.post('/api/v1/billing/checkout', authMiddleware, CheckoutController.createCheckout);
-app.post('/api/v1/billing/portal', authMiddleware, CheckoutController.createPortal);
-app.get('/api/v1/billing/usage/current', authMiddleware, UsageController.getCurrentUsage);
-app.get('/api/v1/billing/usage/history', authMiddleware, UsageController.getUsageHistory);
+app.post('/api/v1/billing/checkout', { preHandler: authMiddleware }, CheckoutController.createCheckout);
+app.post('/api/v1/billing/portal', { preHandler: authMiddleware }, CheckoutController.createPortal);
+app.get('/api/v1/billing/usage/current', { preHandler: authMiddleware }, UsageController.getCurrentUsage);
+app.get('/api/v1/billing/usage/history', { preHandler: authMiddleware }, UsageController.getUsageHistory);
 app.post('/api/v1/billing/meter', UsageController.meterUsage);
-app.get('/api/v1/billing/subscription', authMiddleware, SubscriptionController.getSubscription);
-app.put('/api/v1/billing/subscription/cancel', authMiddleware, SubscriptionController.cancelSubscription);
+app.get('/api/v1/billing/subscription', { preHandler: authMiddleware }, SubscriptionController.getSubscription);
+app.put('/api/v1/billing/subscription/cancel', { preHandler: authMiddleware }, SubscriptionController.cancelSubscription);
 
 // Webhook (no auth, uses signature verification)
 app.post('/api/v1/billing/webhooks/stripe', WebhookController.handleStripeWebhook);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
 
 export { app };
 ```

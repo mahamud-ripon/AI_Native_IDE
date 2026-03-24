@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import Any, AsyncGenerator, Optional
 
 from langchain_core.output_parsers import PydanticOutputParser
 
@@ -144,6 +145,7 @@ class PMAgent:
     """Product Manager Agent - generates structured PRDs using Tier 1 LLM.
 
     Uses Prompt Caching for 90% cost reduction on system prompts.
+    Supports both sync and streaming modes.
     """
 
     def __init__(self):
@@ -152,7 +154,7 @@ class PMAgent:
 
     async def run(self, state: AgentState) -> dict:
         """
-        Execute the PM Agent with retry logic and prompt caching.
+        Execute the PM Agent with retry logic and prompt caching (non-streaming).
 
         Args:
             state: Current agent state containing user prompt
@@ -192,7 +194,10 @@ class PMAgent:
                 result = await self.llm.ainvoke(messages)
 
                 # Parse structured output
-                parsed = self.parser.parse(result.content)
+                content = result.content
+                if isinstance(content, list) and len(content) > 0:
+                    content = content[0].text if hasattr(content[0], 'text') else str(content[0])
+                parsed = self.parser.parse(content)
 
                 # Estimate cost with cache savings
                 cached_tokens = cost_manager._cache_stats["tier1"]["tokens_cached"]
@@ -214,3 +219,84 @@ class PMAgent:
                     await asyncio.sleep(RETRY_DELAY * (attempt + 1))
 
         return {"errors": [f"PM Agent failed after {MAX_RETRIES} attempts: {last_error}"]}
+
+    async def run_stream(
+        self,
+        state: AgentState,
+        on_token: Optional[callable] = None,
+    ) -> AsyncGenerator[tuple[str, dict], None]:
+        """
+        Execute the PM Agent with token-by-token streaming.
+
+        Args:
+            state: Current agent state containing user prompt
+            on_token: Optional callback for each token
+
+        Yields:
+            Tuples of (token, metadata) where token is text chunk and metadata contains result info
+        """
+        if not state.user_prompt:
+            yield ("", {"error": "PM Agent: Missing user prompt"})
+            return
+
+        # Check for API key - return stub if missing
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            stub_output = _get_stub_output()
+            stub_json = stub_output.model_dump_json()
+            for char in stub_json:
+                yield (char, {"is_streaming": True})
+            yield ("", {"pm_output": stub_output, "done": True})
+            return
+
+        # Build user prompt with format instructions
+        user_prompt = PM_USER_PROMPT_TEMPLATE.format(
+            user_prompt=state.user_prompt,
+            format_instructions=self.parser.get_format_instructions(),
+        )
+
+        # Create cached prompt
+        messages = cost_manager.create_cached_prompt(
+            system_prompt=PM_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            tier="tier1",
+            few_shot_examples=FEW_SHOT_EXAMPLES,
+        )
+
+        # Stream tokens
+        try:
+            full_response = ""
+            
+            # Use streaming LLM call
+            result_text, _ = await cost_manager.stream(
+                tier="tier1",
+                messages=messages,
+                on_token=on_token,
+            )
+            
+            full_response = result_text
+            
+            # Yield each character for fine-grained streaming
+            for char in full_response:
+                yield (char, {"is_streaming": True})
+            
+            # Parse and return final result
+            try:
+                parsed = self.parser.parse(full_response)
+                cached_tokens = cost_manager._cache_stats["tier1"]["tokens_cached"]
+                cost = _estimate_cost(
+                    PM_SYSTEM_PROMPT + FEW_SHOT_EXAMPLES + user_prompt,
+                    parsed.model_dump_json(),
+                    cached_tokens,
+                )
+                
+                yield ("", {
+                    "pm_output": parsed,
+                    "cost_sofar": cost,
+                    "cache_stats": cost_manager.get_cache_stats("tier1"),
+                    "done": True,
+                })
+            except Exception as parse_err:
+                yield ("", {"error": f"PM Agent parse error: {parse_err}", "done": True})
+                
+        except Exception as e:
+            yield ("", {"error": f"PM Agent failed: {e}", "done": True})

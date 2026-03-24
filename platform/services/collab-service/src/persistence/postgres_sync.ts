@@ -2,7 +2,19 @@ import { prisma } from '../lib/prisma.js';
 import { redis, RedisKeys } from '../lib/redis.js';
 import { YjsManager } from '../core/yjs_manager.js';
 import { config } from '../config.js';
+import { S3Client } from '@aws-sdk/client-s3';
 
+// Initialize S3 client for uploading large files
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
+  }
+});
+
+const S3_BUCKET = process.env.S3_FILE_BUCKET || 'ide-files';
+const INLINE_THRESHOLD = 64 * 1024; // 64KB threshold for dual-storage strategy
 let syncInterval: NodeJS.Timeout | null = null;
 
 export const PostgresSync = {
@@ -69,19 +81,74 @@ export const PostgresSync = {
 
   /**
    * Sync a single document to PostgreSQL
+   * Applies dual-storage strategy: files >64KB go to S3, small files inline
    */
   async syncDocument(fileId: string): Promise<void> {
     // Get text from Yjs
     const text = await YjsManager.flushToPostgres(fileId);
+    const contentBuffer = Buffer.from(text, 'utf-8');
+    const fileSize = contentBuffer.length;
     
-    // Update project file - convert string to Buffer
-    await prisma.projectFile.update({
+    // Get current file to check existing storage location
+    const currentFile = await prisma.projectFile.findUnique({
       where: { id: fileId },
-      data: { 
-        inlineContent: Buffer.from(text, 'utf-8'),
-        lastEditedAt: new Date()
-      }
+      select: { s3Key: true, isDirectory: true }
     });
+    
+    if (currentFile?.isDirectory) {
+      // Directories don't have content - just update timestamp
+      await prisma.projectFile.update({
+        where: { id: fileId },
+        data: { lastEditedAt: new Date() }
+      });
+    } else if (fileSize > INLINE_THRESHOLD) {
+      // Large file: upload to S3, store null inlineContent
+      const s3Key = `projects/${fileId}/content`;
+      
+      // Upload to S3
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+      await s3Client.send(new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: s3Key,
+        Body: contentBuffer,
+        ContentType: 'text/plain'
+      }));
+      
+      await prisma.projectFile.update({
+        where: { id: fileId },
+        data: { 
+          s3Key: s3Key,
+          inlineContent: null, // Clear inline content for large files
+          lastEditedAt: new Date()
+        }
+      });
+      
+      console.log(`[PostgresSync] Large file ${fileId} synced to S3 (${fileSize} bytes)`);
+    } else {
+      // Small file: store inline, clear s3Key
+      await prisma.projectFile.update({
+        where: { id: fileId },
+        data: { 
+          inlineContent: contentBuffer,
+          s3Key: null, // Clear S3 key when storing inline
+          lastEditedAt: new Date()
+        }
+      });
+      
+      // If there was an old S3 object, delete it to save storage
+      if (currentFile?.s3Key) {
+        try {
+          const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+          await s3Client.send(new DeleteObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: currentFile.s3Key
+          }));
+        } catch (e) {
+          // Non-fatal: old S3 object may not exist
+          console.warn(`[PostgresSync] Failed to delete old S3 object: ${currentFile.s3Key}`);
+        }
+      }
+    }
 
     // Update collab document sync time
     await prisma.collabDocument.update({

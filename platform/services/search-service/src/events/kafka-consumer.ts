@@ -1,14 +1,12 @@
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config/index.js';
 import { FileIndexer } from '../indexers/file-indexer.js';
 import { ProjectIndexer } from '../indexers/project-indexer.js';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 
-const kafka = new Kafka({
-  clientId: 'search-service',
-  brokers: config.kafka.brokers,
-});
+const kafka = createKafkaClient({ clientId: 'search-service', groupId: config.kafka.groupId });
 
 let consumer: Consumer | null = null;
 
@@ -19,18 +17,18 @@ export const KafkaConsumer = {
       return;
     }
 
-    consumer = kafka.consumer({ groupId: config.kafka.groupId });
+    const newConsumer = kafka.consumer({ groupId: config.kafka.groupId });
 
-    await consumer.connect();
+    await newConsumer.connect();
     logger.info('Kafka consumer connected');
 
-    await consumer.subscribe({ topic: 'file.modified', fromBeginning: false });
-    await consumer.subscribe({ topic: 'file.deleted', fromBeginning: false });
-    await consumer.subscribe({ topic: 'project.created', fromBeginning: false });
-    await consumer.subscribe({ topic: 'project.deleted', fromBeginning: false });
-    await consumer.subscribe({ topic: 'project.updated', fromBeginning: false });
+    await newConsumer.subscribe({ topic: 'file.modified', fromBeginning: false });
+    await newConsumer.subscribe({ topic: 'file.deleted', fromBeginning: false });
+    await newConsumer.subscribe({ topic: 'project.created', fromBeginning: false });
+    await newConsumer.subscribe({ topic: 'project.deleted', fromBeginning: false });
+    await newConsumer.subscribe({ topic: 'project.updated', fromBeginning: false });
 
-    await consumer.run({
+    await newConsumer.run({
       eachMessage: async ({ topic, message }: EachMessagePayload) => {
         try {
           if (!message.value) return;
@@ -55,10 +53,18 @@ export const KafkaConsumer = {
               break;
           }
         } catch (error) {
-          logger.error({ error, topic }, 'Kafka message processing failed');
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          logger.error({ 
+            topic, 
+            error: errorMessage, 
+            stack: errorStack 
+          }, 'Kafka message processing failed');
         }
       },
     });
+
+    consumer = newConsumer;
   },
 
   async stop(): Promise<void> {

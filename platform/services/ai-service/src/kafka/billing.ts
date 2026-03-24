@@ -1,4 +1,5 @@
-import { Kafka, Producer } from 'kafkajs';
+import { Producer } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 
 let producer: Producer | null = null;
@@ -15,10 +16,7 @@ export interface BillingEvent {
 
 async function getProducer(): Promise<Producer> {
   if (!producer) {
-    const kafka = new Kafka({
-      clientId: 'ai-service',
-      brokers: config.kafkaBrokers.split(','),
-    });
+    const kafka = createKafkaClient({ clientId: 'ai-service' });
     producer = kafka.producer();
     await producer.connect();
   }

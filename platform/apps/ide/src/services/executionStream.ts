@@ -145,7 +145,7 @@ export class ExecutionStreamClient {
 
   // Default options
   private autoReconnect = true;
-  private maxReconnectAttempts = 10;
+  private maxReconnectAttempts = 5; // Cap reconnects — avoids infinite loop when endpoint is down
   private baseReconnectDelay = 1000;
   private maxReconnectDelay = 30000;
   private useExponentialBackoff = true;
@@ -400,7 +400,10 @@ export class ExecutionStreamClient {
         });
       }, delay);
     } else {
-      console.error('[ExecutionStreamClient] Max reconnect attempts reached');
+      console.error(
+        `[ExecutionStreamClient] Max reconnect attempts (${this.maxReconnectAttempts}) reached. ` +
+        `Check that the WebSocket endpoint is available. Giving up.`
+      );
       this.setStatus('disconnected');
     }
   }
@@ -664,25 +667,43 @@ export class ExecutionStreamClient {
    */
   private handleMessage(data: string): void {
     try {
-      const message = JSON.parse(data);
+      const rawMessage = JSON.parse(data);
+      let message = rawMessage;
 
-      // Handle connection messages
-      if (message.type === 'connection.established') {
-        console.log('[ExecutionStreamClient] Connection established:', message.connectionId);
+      // Handle standalone gateway "message" envelope
+      if (message.type === 'message' && message.payload) {
+        message = message.payload;
+      }
+      // Handle Phase-7 "execution.event" envelope
+      if (message.type === 'execution.event' && message.event) {
+        message = message.event;
+      }
+
+      // Handle connection messages (check both raw and unwrapped)
+      const type = message.type || rawMessage.type;
+
+      // 'connected' is sent by both the WS gateway and the AI service /ws endpoint
+      if (type === 'connected' || type === 'connection.established') {
+        console.log('[ExecutionStreamClient] Connection established:', message.connectionId || rawMessage.connectionId);
         return;
       }
 
-      if (message.type === 'execution.subscribed') {
-        console.log('[ExecutionStreamClient] Subscribed:', message.channel);
+      if (type === 'execution.subscribed' || type === 'subscribed') {
+        console.log('[ExecutionStreamClient] Subscribed:', message.channel || rawMessage.channel);
         return;
       }
 
-      if (message.type === 'execution.unsubscribed') {
-        console.log('[ExecutionStreamClient] Unsubscribed:', message.taskId || message.workspaceId);
+      if (type === 'execution.unsubscribed' || type === 'unsubscribed') {
+        console.log('[ExecutionStreamClient] Unsubscribed:', message.taskId || message.workspaceId || rawMessage.taskId);
         return;
       }
 
-      // Handle execution events
+      if (type === 'pong') {
+        // Heartbeat response — ignore silently
+        return;
+      }
+
+      // Handle execution events (must be the unwrapped version)
       if (this.isExecutionEvent(message)) {
         this.handleExecutionEvent(message);
       }

@@ -32,36 +32,60 @@ export function TerminalPanel() {
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-    
-    // Use requestAnimationFrame to ensure DOM is fully rendered before fitting
-    requestAnimationFrame(() => {
-      if (terminalRef.current && fitAddon) {
-        try {
-          fitAddon.fit();
-        } catch (e) {
-          console.warn('Terminal fit failed:', e);
+
+    // Defer term.open() to ensure container has proper dimensions
+    // This fixes xterm.js viewport "Cannot read properties of undefined (reading 'dimensions')" error
+    // which occurs when the container hasn't been laid out yet
+    let resizeHandler: (() => void) | null = null;
+    let isTerminated = false;
+
+    const openTerminal = () => {
+      if (!terminalRef.current || !terminalRef.current.isConnected || isTerminated) {
+        console.warn('[TerminalPanel] Container no longer available, skipping terminal open');
+        return;
+      }
+      
+      try {
+        term.open(terminalRef.current);
+        
+        // Use requestAnimationFrame to ensure DOM is fully rendered before fitting
+        requestAnimationFrame(() => {
+          if (terminalRef.current && fitAddon && !isTerminated) {
+            try {
+              fitAddon.fit();
+            } catch (e) {
+              console.warn('Terminal fit failed:', e);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('[TerminalPanel] Failed to open terminal:', e);
+        return;
+      }
+
+      termInstanceRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      resizeHandler = () => {
+        if (fitAddonRef.current) {
+          fitAddonRef.current.fit();
         }
-      }
-    });
+      };
 
-    termInstanceRef.current = term;
-    fitAddonRef.current = fitAddon;
+      window.addEventListener('resize', resizeHandler);
 
-    const handleResize = () => {
-      if (fitAddonRef.current) {
-        fitAddonRef.current.fit();
-      }
+      term.writeln('\x1b[1;36m▶ Terminal ready\x1b[0m');
+      term.writeln('Starting interactive shell...');
+      term.writeln('');
     };
 
-    window.addEventListener('resize', handleResize);
-
-    term.writeln('\x1b[1;36m▶ Terminal ready\x1b[0m');
-    term.writeln('Starting interactive shell...');
-    term.writeln('');
+    setTimeout(openTerminal, 0);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      isTerminated = true;
+      if (resizeHandler) {
+        window.removeEventListener('resize', resizeHandler);
+      }
       term.dispose();
       termInstanceRef.current = null;
       fitAddonRef.current = null;

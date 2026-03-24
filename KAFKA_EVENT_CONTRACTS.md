@@ -2,8 +2,9 @@
 
 > **Purpose:** Strict, machine-readable payload schemas for EVERY Kafka topic.  
 > **Rule:** Producers MUST publish, and consumers MUST validate, against EXACTLY these schemas.  
-> **Source of Truth:** `@workspace/shared-types/src/kafka-events/` mirrors these interfaces.  
+> **Source of Truth:** `platform/packages/shared-types/src/` mirrors these interfaces.  
 > **Serialization:** JSON. Partition keys specified per topic. All UUIDs are v4 strings.
+> **Event Broker:** Redpanda Cloud (Kafka-compatible) for development.
 
 ---
 

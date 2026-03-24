@@ -16,7 +16,9 @@ const fastify = Fastify({
 async function registerPlugins() {
   await fastify.register(helmet);
   await fastify.register(cors, {
-    origin: true,
+    origin: process.env.NODE_ENV === 'production'
+      ? ['https://platform.io', /^https:\/\/.*\.platform\.io$/]
+      : true,
     credentials: true,
   });
 }

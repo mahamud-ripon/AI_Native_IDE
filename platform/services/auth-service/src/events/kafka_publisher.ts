@@ -1,10 +1,7 @@
-import { Kafka } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 
-// Connect to AWS MSK / Local Kafka
-const kafka = new Kafka({
-  clientId: 'auth-service',
-  brokers: [process.env.KAFKA_BROKERS || 'localhost:9092'],
-});
+// Connect to AWS MSK / Local Kafka / Redpanda Cloud
+const kafka = createKafkaClient({ clientId: 'auth-service' });
 
 const producer = kafka.producer();
 let isConnected = false;

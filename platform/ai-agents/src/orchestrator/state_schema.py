@@ -138,6 +138,7 @@ class AgentState(BaseModel):
     devops_output: Optional[CodeOutput] = None
     qa_output: Optional[QAOutput] = None
     security_output: Optional[SecurityOutput] = None
+    code_execution_output: Optional[Dict[str, Any]] = None
 
     iteration: Annotated[int, operator.add] = 0
     max_iterations: int = 3

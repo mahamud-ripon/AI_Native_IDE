@@ -24,10 +24,30 @@ export async function createProject(
   const traceId = request.id;
 
   try {
+    const reqBody = request.body as any;
+    logger.info({ body: reqBody }, "Incoming project create request");
+
+    if (!reqBody || !reqBody.name || !reqBody.template) {
+      return reply.status(400).send({
+        error: "Missing required fields"
+      });
+    }
+
     const data = CreateProjectSchema.parse(request.body);
     const slug = generateSlug(data.name);
 
     const project = await prisma.$transaction(async (tx) => {
+      // Upsert user to satisfy foreign key constraint
+      await tx.user.upsert({
+        where: { id: userId },
+        update: {},
+        create: {
+          id: userId,
+          username: `user_${userId.slice(0, 8)}`,
+          email: `user_${userId.slice(0, 8)}@example.com`,
+        },
+      });
+
       const newProject = await tx.project.create({
         data: {
           ownerId: userId,
@@ -75,8 +95,8 @@ export async function createProject(
       data: project,
       traceId,
     });
-  } catch (error) {
-    logger.error('Failed to create project', { error, userId, traceId });
+  } catch (error: any) {
+    logger.error({ error: error.message, stack: error.stack }, 'Project creation failed');
     throw error;
   }
 }
@@ -96,16 +116,23 @@ export async function listProjects(
     const query = ListProjectsQuerySchema.parse(request.query);
     const { page, limit, visibility, status, cursor } = query;
 
-    // Get owned projects
-    const ownedProjects = await prisma.project.findMany({
+    // Single unified query using OR for owned and collaborated projects
+    const projects = await prisma.project.findMany({
       where: {
-        ownerId: userId,
         deletedAt: null,
+        OR: [
+          { ownerId: userId }, // user owns it
+          {
+            collaborators: {
+              some: { userId }, // user is a collaborator
+            },
+          },
+        ],
         ...(visibility && { visibility }),
         ...(status && { status }),
       },
       take: limit + 1,
-      ...(cursor && { cursor: { id: cursor } }),
+      ...(cursor && { cursor: { id: cursor }, skip: 1 }),
       orderBy: { updatedAt: 'desc' },
       include: {
         owner: { select: { id: true, username: true } },
@@ -113,40 +140,18 @@ export async function listProjects(
       },
     });
 
-    // Get collaborated projects
-    const collaboratedProjects = await prisma.projectCollaborator.findMany({
-      where: { userId },
-      include: {
-        project: {
-          include: {
-            owner: { select: { id: true, username: true } },
-            _count: { select: { files: true, collaborators: true } },
-          },
-        },
-      },
-    });
-
-    const collabProjects = collaboratedProjects
-      .map((c) => c.project)
-      .filter((p) => !p.deletedAt && (!visibility || p.visibility === visibility) && (!status || p.status === status));
-
-    // Combine and sort
-    const allProjects = [...ownedProjects, ...collabProjects]
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .slice(0, limit + 1);
-
-    const hasMore = allProjects.length > limit;
-    const projects = hasMore ? allProjects.slice(0, -1) : allProjects;
-    const nextCursor = hasMore ? projects[projects.length - 1]?.id : undefined;
+    const hasMore = projects.length > limit;
+    const page_data = hasMore ? projects.slice(0, -1) : projects;
+    const nextCursor = hasMore ? page_data[page_data.length - 1]?.id : undefined;
 
     reply.send({
       success: true,
       data: {
-        projects,
+        projects: page_data,
         pagination: {
           page,
           limit,
-          total: projects.length,
+          total: page_data.length,
           hasMore,
           nextCursor,
         },

@@ -1,14 +1,12 @@
-import { Kafka, Consumer } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config/index.js';
 import { PushService } from '../services/push_service.js';
 import { EmailService } from '../services/email_service.js';
 import { NotificationBatcher } from '../services/notification_batcher.js';
 import { EmailWorker } from '../workers/email_worker.js';
 
-const kafka = new Kafka({
-  clientId: 'notification-service',
-  brokers: config.kafka.brokers,
-});
+const kafka = createKafkaClient({ clientId: 'notification-service', groupId: config.kafka.groupId });
 
 const consumer = kafka.consumer({ groupId: config.kafka.groupId });
 
@@ -27,7 +25,7 @@ export const KafkaConsumer = {
     await consumer.subscribe({ topic: 'usage.exceeded', fromBeginning: false });
 
     await consumer.run({
-      eachMessage: async ({ topic, message }) => {
+      eachMessage: async ({ topic, message }: EachMessagePayload) => {
         try {
           const payload = JSON.parse(message.value?.toString() || '{}');
 

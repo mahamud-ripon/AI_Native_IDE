@@ -145,17 +145,22 @@ export class TaskOrchestrator {
       });
 
       // Set timeout
+      let timeoutHandle: NodeJS.Timeout;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
+        timeoutHandle = setTimeout(() => {
           reject(new TaskExecutionError('Task timeout', TASK_ERRORS.TIMEOUT, 'execution'));
         }, options.timeoutMs);
       });
 
       // Run agent with timeout
-      agentResult = await Promise.race([
-        agent.run(request.prompt),
-        timeoutPromise,
-      ]);
+      try {
+        agentResult = await Promise.race([
+          agent.run(request.prompt),
+          timeoutPromise,
+        ]);
+      } finally {
+        clearTimeout(timeoutHandle!);
+      }
 
       metrics.executionMs = Date.now() - agentStartTime;
 

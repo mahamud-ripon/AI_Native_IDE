@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** project-service (Port 8002)  
-> **Tech Stack:** Node.js + Express + Prisma + S3 + Vault + Kafka
+> **Tech Stack:** Node.js + Fastify + Prisma + S3 + Vault + Redpanda (Kafka-compatible)
 
 ---
 
@@ -21,7 +21,7 @@ The Project Service is the core engine for managing user workspaces. It handles 
 mkdir -p project-service/src/{controllers,services,dto,events,lib,config,middleware}
 cd project-service
 npm init -y
-npm install express aws-sdk @prisma/client kafkajs zod dotenv cors helmet uuid
+npm install fastify @fastify/cors @fastify/helmet @aws-sdk/client-s3 @prisma/client kafkajs zod dotenv uuid
 npm install -D typescript @types/node @types/uuid ts-node prisma
 npx tsc --init
 ```
@@ -39,22 +39,22 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "aws-sdk": "^2.1500.0",
-    "@prisma/client": "^5.8.0",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
+    "@aws-sdk/client-s3": "^3.478.0",
+    "@prisma/client": "^5.10.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "@types/uuid": "^9.0.0",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -406,7 +406,7 @@ export const GitCloneManager = {
 ### 6.1 Workspace Controller (src/controllers/workspace_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../lib/prisma';
 import { KafkaPublisher } from '../events/kafka_publisher';
@@ -631,7 +631,7 @@ export const WorkspaceController = {
 ### 6.2 File Tree Controller (src/controllers/file_tree_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma';
 import { KafkaPublisher } from '../events/kafka_publisher';
 import { PermissionService } from '../services/permission_srv';
@@ -846,7 +846,7 @@ function buildTree(files: any[]): FileTreeNode {
 ### 6.3 Secret Controller (src/controllers/secret_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma';
 import { PermissionService } from '../services/permission_srv';
 import { CreateSecretSchema } from '../dto/file.dto';
@@ -1061,54 +1061,44 @@ model ProjectFile {
 ### 9.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { WorkspaceController } from './controllers/workspace_controller';
 import { FileTreeController } from './controllers/file_tree_controller';
 import { SecretController } from './controllers/secret_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'project-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'project-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Protected endpoints - Projects
-app.post('/api/v1/projects', authMiddleware, WorkspaceController.createProject);
-app.get('/api/v1/projects', authMiddleware, WorkspaceController.listProjects);
-app.get('/api/v1/projects/:id', authMiddleware, WorkspaceController.getProject);
-app.put('/api/v1/projects/:id', authMiddleware, WorkspaceController.updateProject);
-app.delete('/api/v1/projects/:id', authMiddleware, WorkspaceController.deleteProject);
-app.post('/api/v1/projects/import', authMiddleware, WorkspaceController.importProject);
+app.post('/api/v1/projects', { preHandler: authMiddleware }, WorkspaceController.createProject);
+app.get('/api/v1/projects', { preHandler: authMiddleware }, WorkspaceController.listProjects);
+app.get('/api/v1/projects/:id', { preHandler: authMiddleware }, WorkspaceController.getProject);
+app.put('/api/v1/projects/:id', { preHandler: authMiddleware }, WorkspaceController.updateProject);
+app.delete('/api/v1/projects/:id', { preHandler: authMiddleware }, WorkspaceController.deleteProject);
+app.post('/api/v1/projects/import', { preHandler: authMiddleware }, WorkspaceController.importProject);
 
 // Protected endpoints - Files
-app.get('/api/v1/projects/:id/tree', authMiddleware, FileTreeController.getFileTree);
-app.post('/api/v1/projects/:id/files', authMiddleware, FileTreeController.createFile);
-app.put('/api/v1/projects/:id/files/:file_id', authMiddleware, FileTreeController.updateFile);
-app.delete('/api/v1/projects/:id/files/:file_id', authMiddleware, FileTreeController.deleteFile);
+app.get('/api/v1/projects/:id/tree', { preHandler: authMiddleware }, FileTreeController.getFileTree);
+app.post('/api/v1/projects/:id/files', { preHandler: authMiddleware }, FileTreeController.createFile);
+app.put('/api/v1/projects/:id/files/:file_id', { preHandler: authMiddleware }, FileTreeController.updateFile);
+app.delete('/api/v1/projects/:id/files/:file_id', { preHandler: authMiddleware }, FileTreeController.deleteFile);
 
 // Protected endpoints - Secrets
-app.get('/api/v1/projects/:id/secrets', authMiddleware, SecretController.listSecrets);
-app.post('/api/v1/projects/:id/secrets', authMiddleware, SecretController.createSecret);
-app.delete('/api/v1/projects/:id/secrets/:secret_id', authMiddleware, SecretController.deleteSecret);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.get('/api/v1/projects/:id/secrets', { preHandler: authMiddleware }, SecretController.listSecrets);
+app.post('/api/v1/projects/:id/secrets', { preHandler: authMiddleware }, SecretController.createSecret);
+app.delete('/api/v1/projects/:id/secrets/:secret_id', { preHandler: authMiddleware }, SecretController.deleteSecret);
 
 export { app };
 ```

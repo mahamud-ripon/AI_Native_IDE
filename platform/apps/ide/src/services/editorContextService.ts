@@ -11,6 +11,7 @@
  */
 
 import { editorManager } from '../core/editor/editorManager';
+import { useIDEStore } from '../stores/ideStore';
 
 // ========================================
 // TYPES
@@ -179,11 +180,28 @@ class EditorContextService {
   /**
    * Get workspace files (placeholder - would integrate with file explorer)
    */
-  private getWorkspaceFiles(projectId: string | null): string[] {
-    // TODO: Integrate with actual file system or file explorer state
-    // For now, return empty array
-    // In production, this would scan the project directory
-    return [];
+  private getWorkspaceFiles(_projectId: string | null): string[] {
+    try {
+      const state = useIDEStore.getState();
+
+      // Collect open tab paths
+      const tabPaths = state.openTabs.map((t: { path: string }) => t.path);
+
+      // Flatten file tree to get all file paths
+      const flattenTree = (nodes: Array<{ path: string; type: string; children?: any[] }>): string[] =>
+        nodes.flatMap(n =>
+          n.type === 'file'
+            ? [n.path]
+            : flattenTree(n.children ?? [])
+        );
+      const treePaths = flattenTree(state.fileTree);
+
+      // Merge and deduplicate, capped to avoid huge prompts
+      const all = [...new Set([...tabPaths, ...treePaths])];
+      return all.slice(0, 50);
+    } catch {
+      return [];
+    }
   }
 
   /**

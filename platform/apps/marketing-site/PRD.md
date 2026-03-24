@@ -653,7 +653,7 @@ npm run dev
 # Open browser and verify animations
 
 # Test Lighthouse score
-npx lighthouse https://localhost:3000
+npx lighthouse http://localhost:5173
 ```
 
 ---

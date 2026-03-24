@@ -1,6 +1,6 @@
 # 🚀 AI-Native IDE - Complete Startup Guide
 
-**Last Updated:** March 16, 2026  
+**Last Updated:** March 19, 2026  
 **Status:** ✅ **READY TO START** - Database initialized, infrastructure running
 
 ---
@@ -44,7 +44,7 @@ pnpm dev
 **Terminal 2 - AI Agents (Python):**
 ```bash
 cd D:\AI-Native-IDE\platform\ai-agents
-python -m uvicorn src.api.main:app --reload --port 8000
+python -m uvicorn src.api.main:app --reload --port 9000
 ```
 
 **Then open:** `http://localhost:5173`
@@ -57,7 +57,7 @@ python -m uvicorn src.api.main:app --reload --port 8000
 
 ```bash
 # API Gateway
-curl http://localhost:3000/health
+curl http://localhost:8000/health
 # Expected: {"status":"ok","service":"api-gateway"}
 
 # AI Service
@@ -65,7 +65,7 @@ curl http://localhost:8003/health
 # Expected: {"status":"ok","service":"ai-service"}
 
 # Python AI Agents
-curl http://localhost:8000/api/v1/workflow/status
+curl http://localhost:9000/api/v1/workflow/status
 # Expected: {"status":"ready","workflows":[]}
 ```
 
@@ -92,19 +92,19 @@ ws.onerror = (e) => console.error('❌ WebSocket Error:', e);
 
 | Service | Port | Status | Health Check |
 |---------|------|--------|--------------|
-| API Gateway | 3000 | ⏳ Starting | `/health` |
-| Auth Service | 3001 | ⏳ Starting | `/health` |
-| Project Service | 3002 | ⏳ Starting | `/health` |
+| API Gateway | 8000 | ⏳ Starting | `/health` |
+| Auth Service | 3100 | ⏳ Starting | `/health` |
+| Project Service | 8002 | ⏳ Starting | `/health` |
 | AI Service (TS) | 8003 | ⏳ Starting | `/health` |
-| AI Agents (Python) | 8000 | ⏳ Starting | `/api/v1/workflow/status` |
+| AI Agents (Python) | 9000 | ⏳ Starting | `/api/v1/workflow/status` |
 | Execution Service | 8004 | ⏳ Starting | `/health` |
-| Collab Service | 3005 | ⏳ Starting | `/health` |
+| Collab Service | 8005 | ⏳ Starting | `/health` |
 | WebSocket Gateway | 8012 | ⏳ Starting | N/A |
-| Search Service | 3006 | ⏳ Starting | `/health` |
-| Deployment Service | 3007 | ⏳ Starting | `/health` |
-| Storage Service | 3008 | ⏳ Starting | `/health` |
-| Analytics Service | 3009 | ⏳ Starting | `/health` |
-| Notification Service | 3010 | ⏳ Starting | `/health` |
+| Search Service | 8008 | ⏳ Starting | `/health` |
+| Deployment Service | 8010 | ⏳ Starting | `/health` |
+| Storage Service | 8009 | ⏳ Starting | `/health` |
+| Analytics Service | 8011 | ⏳ Starting | `/health` |
+| Notification Service | 8007 | ⏳ Starting | `/health` |
 | Background Worker | - | ⏳ Starting | N/A |
 | IDE Frontend | 5173 | ⏳ Starting | N/A |
 
@@ -119,7 +119,7 @@ ws.onerror = (e) => console.error('❌ WebSocket Error:', e);
 **Check if ports are already in use:**
 ```bash
 # Windows PowerShell
-netstat -ano | findstr :3000
+netstat -ano | findstr :8000
 netstat -ano | findstr :8003
 netstat -ano | findstr :5173
 ```
@@ -226,7 +226,7 @@ pnpm dev
 
 # Terminal 2: Start AI Agents
 cd D:\AI-Native-IDE\platform\ai-agents
-python -m uvicorn src.api.main:app --reload --port 8000
+python -m uvicorn src.api.main:app --reload --port 9000
 
 # Browser: Open IDE
 http://localhost:5173

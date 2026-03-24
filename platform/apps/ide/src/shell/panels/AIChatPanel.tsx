@@ -27,8 +27,9 @@ import { groqClient, AI_ASSISTANT_SYSTEM_PROMPT } from '../../services/groqClien
 import { editorContextService } from '../../services/editorContextService';
 import { aiCodingController } from '../../core/ai/aiCodingController';
 import { localCodingService, isCodingIntent } from '../../services/localCodingService';
-import { aiOrchestrator, AgentName, OrchestratorState } from '../../services/aiOrchestrator';
+import { aiOrchestrator, OrchestratorState } from '../../services/aiOrchestrator';
 import { aiServiceClient, WorkflowRun, WorkflowEvent } from '../../api/aiServiceClient';
+import { useIDEStore, ideEventBus } from '../../stores/ideStore';
 import styles from './AIChatPanel.module.css';
 
 // ========================================
@@ -153,36 +154,40 @@ export function AIChatPanel({
       setMessages(prev => prev.map((m) =>
         m.taskId === activeTask.id
           ? {
-              ...m,
-              content: formatTaskComplete(activeTask),
-              status: 'complete',
-              metadata: {
-                filesModified: activeTask.filesModified,
-                patchesGenerated: activeTask.patchesGenerated,
-                duration: activeTask.completedAt && activeTask.startedAt
-                  ? activeTask.completedAt - activeTask.startedAt
-                  : undefined,
-              },
-            }
+            ...m,
+            content: formatTaskComplete(activeTask),
+            status: 'complete',
+            metadata: {
+              filesModified: activeTask.filesModified,
+              patchesGenerated: activeTask.patchesGenerated,
+              duration: activeTask.completedAt && activeTask.startedAt
+                ? activeTask.completedAt - activeTask.startedAt
+                : undefined,
+            },
+          }
           : m
       ));
     } else if (executionStatus.status === 'failed') {
       setMessages(prev => prev.map((m) =>
         m.taskId === activeTask.id
           ? {
-              ...m,
-              content: formatTaskError(activeTask),
-              status: 'error',
-              metadata: { error: activeTask.error?.message },
-            }
+            ...m,
+            content: formatTaskError(activeTask),
+            status: 'error',
+            metadata: { error: activeTask.error?.message },
+          }
           : m
       ));
     }
   }, [executionStatus, activeTask?.id]);
 
-  // Subscribe to AI Coding Controller state changes
+  // Keep a stable ref to messages to avoid re-creating the subscription on every update
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Subscribe to AI Coding Controller state changes — registered ONCE (Bug 8 fix)
   useEffect(() => {
-    const unsubscribe = aiCodingController.onStateChange((sessionId, state, prevState) => {
+    const unsubscribe = aiCodingController.onStateChange((sessionId, state, _prevState) => {
       const session = aiCodingController.getActiveSession();
       if (!session || session.id !== sessionId) return;
 
@@ -197,16 +202,17 @@ export function AIChatPanel({
         'FAILED': '❌ **Task failed**\n\nThere was an error while processing your request.',
       };
 
-      // Find existing progress message for this session
-      const existingIndex = messages.findIndex(m => m.taskId === session.taskId && m.status === 'streaming');
-      
+      // Use ref to read current messages without re-running the effect
+      const existingIndex = messagesRef.current.findIndex(
+        m => m.taskId === session.taskId && m.status === 'streaming'
+      );
+
       if (state === 'COMPLETED' || state === 'FAILED') {
-        // Final state - will be handled by executionStatus useEffect
+        // Final state — handled by executionStatus useEffect
         return;
       }
 
       if (existingIndex !== -1) {
-        // Update existing progress message
         setMessages(prev => prev.map((m, i) =>
           i === existingIndex
             ? { ...m, content: stateMessages[state] ?? m.content }
@@ -216,64 +222,10 @@ export function AIChatPanel({
     });
 
     return () => unsubscribe();
-  }, [messages]);
+  }, []); // Register only ONCE — no messages dependency (Bug 8 fix)
 
-  // Send message handler
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isSending) return;
-
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: input.trim(),
-      timestamp: Date.now(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsSending(true);
-
-    try {
-      if (onSendMessage) {
-        await onSendMessage(input.trim());
-      } else {
-        // Default: submit execution task via API
-        await submitTask(input.trim());
-      }
-    } catch (error) {
-      const errorMessage: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: 'system',
-        content: `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsSending(false);
-    }
-  }, [input, isSending, onSendMessage]);
-
-  // Handle key press
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  // Save API key
-  const handleSaveApiKey = () => {
-    if (apiKeyInput.trim()) {
-      groqClient.setApiKey(apiKeyInput.trim());
-      setApiKeyInput('');
-      setShowSettings(false);
-      // Force re-render
-      setMessages(prev => [...prev]);
-    }
-  };
-
-  // Submit task - uses backend ai-service for multi-agent workflow
-  const submitTask = async (instruction: string) => {
+  // Submit task — memoized to avoid stale closure (Bug 7 fix)
+  const submitTask = useCallback(async (instruction: string) => {
     // Check if this is a coding intent
     if (isCodingIntent(instruction)) {
       // Use BACKEND AI-SERVICE for multi-agent workflow
@@ -309,8 +261,12 @@ export function AIChatPanel({
           triggerType: 'manual',
         });
 
+        // Track whether WebSocket is delivering live events (Bug 9 fix)
+        let wsReceivingUpdates = false;
+
         // Subscribe to workflow events
         const unsubscribe = aiServiceClient.subscribeToWorkflow(response.workflowRunId, (event: WorkflowEvent) => {
+          wsReceivingUpdates = true;
           const agentEmojis: Record<string, string> = {
             'pm_agent': '📋',
             'architect_agent': '🏗️',
@@ -322,7 +278,7 @@ export function AIChatPanel({
           };
 
           switch (event.type) {
-            case 'step_started':
+            case 'step_started': {
               const emoji = agentEmojis[event.agentName || ''] || '🔄';
               const agentName = (event.agentName || 'Agent').replace('_agent', '').toUpperCase();
               setMessages(prev => prev.map(m =>
@@ -331,15 +287,7 @@ export function AIChatPanel({
                   : m
               ));
               break;
-
-            case 'step_completed':
-              setMessages(prev => prev.map(m =>
-                m.id === progressMessage.id
-                  ? { ...m, content: `✅ **Step ${event.stepIndex} completed**\n\n${event.stepName}` }
-                  : m
-              ));
-              break;
-
+            }
             case 'step_failed':
               setMessages(prev => prev.map(m =>
                 m.id === progressMessage.id
@@ -348,27 +296,70 @@ export function AIChatPanel({
               ));
               break;
 
-            case 'workflow_completed':
+            case 'workflow_completed': {
+              // BUG 3 FIX: handle file.created / file.modified events that
+              // arrive piggy-backed on workflow_completed/agent_complete events.
+              const embeddedEvent = event.data?.event as string | undefined;
+              if (embeddedEvent === 'file.created' || embeddedEvent === 'file.modified') {
+                const filePath = event.data?.file_path as string | undefined;
+                if (filePath) {
+                  // Refresh IDE file tree and open the file
+                  ideEventBus.emit('file:created', { path: filePath });
+                  try {
+                    const store = useIDEStore.getState();
+                    store.openTab?.(filePath, '');
+                  } catch {
+                    // store may not have openTab in all builds
+                  }
+                }
+                break; // don't close the stream — more events may follow
+              }
+
               setMessages(prev => prev.map(m =>
                 m.id === progressMessage.id
                   ? {
-                      ...m,
-                      content: `✅ **AI Team Completed!**\n\nWorkflow finished successfully. Check the generated files.`,
-                      status: 'complete',
-                    }
+                    ...m,
+                    content: `✅ **AI Team Completed!**\n\nWorkflow finished successfully. Check the generated files.`,
+                    status: 'complete',
+                  }
                   : m
               ));
               unsubscribe();
               break;
+            }
+
+            case 'step_completed': {
+              // BUG 3 FIX: also intercept file events on step_completed
+              const embeddedEvent2 = event.data?.event as string | undefined;
+              if (embeddedEvent2 === 'file.created' || embeddedEvent2 === 'file.modified') {
+                const filePath = event.data?.file_path as string | undefined;
+                if (filePath) {
+                  ideEventBus.emit('file:created', { path: filePath });
+                  try {
+                    const store = useIDEStore.getState();
+                    store.openTab?.(filePath, '');
+                  } catch {
+                    // store may not have openTab in all builds
+                  }
+                }
+                break;
+              }
+              setMessages(prev => prev.map(m =>
+                m.id === progressMessage.id
+                  ? { ...m, content: `✅ **Step ${event.stepIndex} completed**\n\n${event.stepName}` }
+                  : m
+              ));
+              break;
+            }
 
             case 'workflow_failed':
               setMessages(prev => prev.map(m =>
                 m.id === progressMessage.id
                   ? {
-                      ...m,
-                      content: `❌ **Workflow Failed**\n\n${event.data?.error || 'Unknown error'}`,
-                      status: 'error',
-                    }
+                    ...m,
+                    content: `❌ **Workflow Failed**\n\n${event.data?.error || 'Unknown error'}`,
+                    status: 'error',
+                  }
                   : m
               ));
               unsubscribe();
@@ -376,129 +367,228 @@ export function AIChatPanel({
           }
         });
 
-        // Also poll for status as fallback
+        // Poll as fallback only when WebSocket is silent (Bug 9 fix)
         const finalRun = await aiServiceClient.pollWorkflowStatus(
           response.workflowRunId,
           (run: WorkflowRun) => {
-            // Update progress based on polling
-            const completedSteps = run.completedSteps.length;
-            const totalSteps = run.totalSteps;
-            const percent = Math.round((completedSteps / totalSteps) * 100);
-            
-            setMessages(prev => prev.map(m =>
-              m.id === progressMessage.id
-                ? { ...m, content: `🔄 **Processing...**\n\nProgress: ${completedSteps}/${totalSteps} steps (${percent}%)\nStatus: ${run.status}` }
-                : m
-            ));
+            if (!wsReceivingUpdates) {
+              const completedSteps = run.completedSteps.length;
+              const totalSteps = run.totalSteps;
+              const percent = Math.round((completedSteps / totalSteps) * 100);
+              setMessages(prev => prev.map(m =>
+                m.id === progressMessage.id
+                  ? { ...m, content: `🔄 **Processing...**\n\nProgress: ${completedSteps}/${totalSteps} steps (${percent}%)\nStatus: ${run.status}` }
+                  : m
+              ));
+            }
           },
-          { intervalMs: 2000, timeoutMs: 300000 }
+          { intervalMs: 3000, timeoutMs: 300000 }
         );
 
         // Final result
         if (finalRun.status === 'completed') {
           const steps = finalRun.steps.filter(s => s.status === 'completed');
           const totalTokens = finalRun.totalTokensIn + finalRun.totalTokensOut;
-          
+
           setMessages(prev => prev.map(m =>
             m.id === progressMessage.id
               ? {
-                  ...m,
-                  content: `✅ **AI Team Completed!**\n\n` +
-                    `**${steps.length} agents** completed successfully.\n` +
-                    `**${totalTokens.toLocaleString()} tokens** used.\n` +
-                    `**$${(finalRun.totalCostUsd || 0).toFixed(4)}** cost.\n\n` +
-                    `Files have been generated in your workspace.`,
-                  status: 'complete',
-                  metadata: {
-                    filesModified: [],
-                    patchesGenerated: steps.length,
-                    duration: finalRun.completedAt 
-                      ? new Date(finalRun.completedAt).getTime() - new Date(finalRun.createdAt).getTime()
-                      : undefined,
-                  }
+                ...m,
+                content: `✅ **AI Team Completed!**\n\n` +
+                  `**${steps.length} agents** completed successfully.\n` +
+                  `**${totalTokens.toLocaleString()} tokens** used.\n` +
+                  `**$${(finalRun.totalCostUsd || 0).toFixed(4)}** cost.\n\n` +
+                  `Files have been generated in your workspace.`,
+                status: 'complete',
+                metadata: {
+                  filesModified: [],
+                  patchesGenerated: steps.length,
+                  duration: finalRun.completedAt
+                    ? new Date(finalRun.completedAt).getTime() - new Date(finalRun.createdAt).getTime()
+                    : undefined,
                 }
+              }
               : m
           ));
         } else if (finalRun.status === 'failed') {
           setMessages(prev => prev.map(m =>
             m.id === progressMessage.id
               ? {
-                  ...m,
-                  content: `❌ **Workflow Failed**\n\n${finalRun.errorMessage || 'Unknown error'}\n\nStep ${finalRun.errorStep} failed.`,
-                  status: 'error',
-                }
+                ...m,
+                content: `❌ **Workflow Failed**\n\n${finalRun.errorMessage || 'Unknown error'}\n\nStep ${finalRun.errorStep} failed.`,
+                status: 'error',
+              }
               : m
           ));
         }
 
         return;
       } catch (error) {
-        console.error('[AIChatPanel] Backend workflow failed:', error);
-        
-        // Update message with error
+        console.error('[AIChatPanel] Backend workflow failed, falling back to local orchestrator:', error);
+
+        // Fall back to local multi-agent orchestrator (Bug 5 fix)
         setMessages(prev => prev.map(m =>
-          m.id === progressMessage.id
-            ? {
-                ...m,
-                content: `⚠️ **Backend unavailable**\n\nFalling back to local AI...\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                status: 'streaming',
-              }
+          m.id === progressMessage?.id
+            ? { ...m, content: '🔄 **Backend unavailable. Running local AI agents...**\n\nSpinning up local agent team...' }
             : m
         ));
-        
-        // Fall through to chat mode
+
+        try {
+          const session = await aiOrchestrator.startSession({
+            projectId: projectId || '00000000-0000-0000-0000-000000000001',
+            workspaceId,
+            prompt: instruction,
+            onProgress: (state: OrchestratorState) => {
+              setMessages(prev => prev.map(m =>
+                m.id === progressMessage?.id
+                  ? {
+                    ...m,
+                    content: `🤖 **${(state.currentAgent ?? 'AI').toUpperCase()} agent working...**\n\n${state.files.length} files generated so far.`,
+                  }
+                  : m
+              ));
+            },
+          });
+
+          // BUG 4 FIX: show accurate persisted vs in-memory status
+          const applyResult = (session as typeof session & {
+            applyResult?: { persisted: string[]; inMemoryOnly: string[] };
+          }).applyResult;
+
+          const persistedCount = applyResult?.persisted.length ?? 0;
+          const inMemoryCount = applyResult?.inMemoryOnly.length ?? 0;
+          const totalFiles = persistedCount + inMemoryCount;
+
+          const persistLine = persistedCount > 0
+            ? `\n💾 **${persistedCount} file${persistedCount !== 1 ? 's' : ''} saved** to the project.`
+            : '';
+          const memLine = inMemoryCount > 0
+            ? `\n⚠️ **${inMemoryCount} file${inMemoryCount !== 1 ? 's' : ''} are open in editor tabs only** — backend is offline, they won't survive a page refresh.`
+            : '';
+
+          setMessages(prev => prev.map(m =>
+            m.id === progressMessage?.id
+              ? {
+                ...m,
+                content: `✅ **Local AI Team Done!**\n\n${totalFiles} file${totalFiles !== 1 ? 's' : ''} generated.${persistLine}${memLine}`,
+                status: 'complete',
+                metadata: { patchesGenerated: totalFiles },
+              }
+              : m
+          ));
+        } catch (orchError) {
+          setMessages(prev => prev.map(m =>
+            m.id === progressMessage?.id
+              ? {
+                ...m,
+                content: `⚠️ **AI Service Unavailable**\n\nBoth the backend service and local orchestrator failed.\n\nError: ${orchError instanceof Error ? orchError.message : 'Unknown error'}`,
+                status: 'error',
+              }
+              : m
+          ));
+        }
+
+        return;
       }
     }
 
-    // Chat-only mode: Use Groq for general questions
-    const editorContext = editorContextService.getContext();
-    const ideContextBlock = editorContextService.getIDEContextBlock();
-    const code = editorContextService.getCodeForAI();
+    // Non-coding intent: use Groq for a conversational streaming response (Bug 3 fix)
+    if (!groqClient.isConfigured()) {
+      setMessages(prev => [...prev, {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant' as const,
+        content: 'I need a Groq API key to answer general questions. Click ⚙️ to configure it.',
+        timestamp: Date.now(),
+        status: 'complete' as const,
+      }]);
+      return;
+    }
 
-    // Stream response from Groq with full IDE context
-    const assistantMessage: ChatMessage = {
-      id: `groq-${Date.now()}`,
+    const assistantMsgId = `groq-${Date.now()}`;
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
       status: 'streaming',
     };
-    setMessages(prev => [...prev, assistantMessage]);
+    setMessages(prev => [...prev, assistantMsg]);
 
-    // Build prompt with IDE context
-    let fullPrompt = '';
-    
-    // Add IDE context
-    if (ideContextBlock.systemContext) {
-      fullPrompt += `[IDE Context]\n${ideContextBlock.systemContext}\n\n`;
-    }
-    
-    // Add code context
-    if (code) {
-      const codeLabel = editorContext.selection 
-        ? `Selected code from ${editorContext.filePath} (lines ${editorContext.selection.startLine}-${editorContext.selection.endLine})`
-        : `Full content of ${editorContext.filePath}`;
-      fullPrompt += `[${codeLabel}]\n\`\`\`${editorContext.language ?? ''}\n${code}\n\`\`\`\n\n`;
-    }
-    
-    // Add user instruction
-    fullPrompt += instruction;
+    const historyForGroq = messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-    let fullContent = '';
+    let accumulated = '';
     await groqClient.chatStream(
       [
         { role: 'system', content: AI_ASSISTANT_SYSTEM_PROMPT },
-        { role: 'user', content: fullPrompt }
+        ...historyForGroq,
+        { role: 'user', content: instruction },
       ],
       (chunk, done) => {
-        fullContent += chunk;
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMessage.id
-            ? { ...m, content: fullContent, status: done ? 'complete' : 'streaming' }
-            : m
-        ));
+        accumulated += chunk;
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsgId
+              ? { ...m, content: accumulated, status: done ? 'complete' : 'streaming' }
+              : m
+          )
+        );
       }
     );
+  }, [projectId, workspaceId, messages]);
+
+  // Send message handler (Bug 7 fix: submitTask is now a stable dep)
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || isSending) return;
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: input.trim(),
+      timestamp: Date.now(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsSending(true);
+
+    try {
+      if (onSendMessage) {
+        await onSendMessage(input.trim());
+      } else {
+        // Default: submit execution task via API
+        await submitTask(input.trim());
+      }
+    } catch (error) {
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: 'system',
+        content: `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsSending(false);
+    }
+  }, [input, isSending, onSendMessage, submitTask]);
+
+  // Handle key press
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  // Save API key
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      groqClient.setApiKey(apiKeyInput.trim());
+      setApiKeyInput('');
+      setShowSettings(false);
+      setMessages(prev => [...prev]);
+    }
   };
 
   // Quick actions
@@ -697,11 +787,10 @@ function formatTaskComplete(task: {
   const files = task.filesModified.length;
   const patches = task.patchesGenerated;
 
-  return `✅ **Task Completed**\n\nModified ${files} file${files !== 1 ? 's' : ''} with ${patches} patch${patches !== 1 ? 'es' : ''}.\n\n${
-    task.filesModified.length > 0
+  return `✅ **Task Completed**\n\nModified ${files} file${files !== 1 ? 's' : ''} with ${patches} patch${patches !== 1 ? 'es' : ''}.\n\n${task.filesModified.length > 0
       ? '**Files:**\n' + task.filesModified.map(f => `- \`${f}\``).join('\n')
       : ''
-  }`;
+    }`;
 }
 
 function formatTaskError(task: {
@@ -711,9 +800,8 @@ function formatTaskError(task: {
   const error = task.error;
   const rollback = task.rollbackPerformed ? '\n\n⚠️ Changes were rolled back.' : '';
 
-  return `❌ **Task Failed**\n\n${
-    error ? `Error in ${error.stage}: ${error.message}` : 'Unknown error occurred'
-  }${rollback}`;
+  return `❌ **Task Failed**\n\n${error ? `Error in ${error.stage}: ${error.message}` : 'Unknown error occurred'
+    }${rollback}`;
 }
 
 function renderContent(content: string, status?: string): React.ReactNode {

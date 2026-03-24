@@ -53,7 +53,7 @@ export function createGroqAdapter(config: GroqAdapterConfig) {
         };
       }
 
-      const data = await response.json();
+      const data = await response.json() as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
       const choice = data.choices?.[0];
       const outputText = choice?.message?.content ?? '';
 

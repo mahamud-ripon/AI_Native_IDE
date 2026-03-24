@@ -6,10 +6,12 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { WebSocket as WsWebSocket } from 'ws';
 import { prisma } from '@workspace/database';
 import { getProducer } from '../kafka/ai_llm_events.js';
 import { getWorkflowRegistry } from '../workflows/registry.js';
 import type { WorkflowDefinition } from '../workflows/types.js';
+import { executionEmitter } from '../lib/executionEmitter.js';
 import { z } from 'zod';
 
 const prismaClient = prisma;
@@ -353,5 +355,25 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       })),
       count: workflowRuns.length,
     });
+  });
+
+  // WebSocket endpoint for real-time execution events
+  app.get('/ws', { websocket: true }, (connection: unknown, _req: FastifyRequest) => {
+    const socket = (connection as { socket: unknown }).socket as unknown as WsWebSocket;
+    
+    socket.on('message', (data: Buffer) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        
+        if (msg.type === 'execution.subscribe' && msg.workspaceId) {
+          executionEmitter.subscribe(msg.workspaceId, socket);
+          socket.send(JSON.stringify({ type: 'execution.subscribed', workspaceId: msg.workspaceId }));
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    });
+    
+    socket.send(JSON.stringify({ type: 'connection.established', connectionId: `conn-${Date.now()}` }));
   });
 }

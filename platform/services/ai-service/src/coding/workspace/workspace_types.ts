@@ -138,6 +138,7 @@ export const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
     'venv',
     'target',
     'vendor',
+    '.ai-ide',
   ],
   readOnlyPaths: [],
 };
@@ -146,7 +147,8 @@ export const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 export class WorkspaceSafetyError extends Error {
   constructor(
     message: string,
-    public readonly violation: 'file_too_large' | 'too_many_files' | 'extension_not_allowed' | 'path_ignored' | 'read_only'
+    public readonly violation: 'file_too_large' | 'too_many_files' | 'extension_not_allowed' | 'path_ignored' | 'read_only' | 'path_traversal',
+    public readonly data?: any
   ) {
     super(message);
     this.name = 'WorkspaceSafetyError';

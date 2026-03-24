@@ -547,18 +547,18 @@ setInterval(() => RateLimiter.cleanup(), 60000);
 ### 9.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
+import Fastify from 'fastify';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import cors from 'cors';
-import helmet from 'helmet';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { ConnectionManager } from './connection/manager';
 import { HeartbeatManager } from './connection/heartbeat';
 import { RateLimiter } from './middleware/rate_limiter';
 
-const app = express();
-const server = createServer(app);
+const app = Fastify({ logger: true });
+const server = createServer(app.server);
 
 // WebSocket server
 const wss = new WebSocketServer({ server, path: '/gateway' });

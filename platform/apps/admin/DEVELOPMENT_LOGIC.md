@@ -26,7 +26,7 @@ src/
 ### 2. Security & Role-Based Access Control (RBAC)
 - **Constraint:** A compromised admin panel means total platform takeover.
 - **Logic:**
-  - Enforce strict server-side Keycloak RBAC validation for every API call.
+  - Enforce strict server-side RBAC validation via custom auth service for every API call.
   - Next.js Middleware must redirect unauthorized users back to the login screen before any JS loads.
   - Audit Logs: Every admin action (e.g., deleting a user, overriding a billing plan) must trigger an `audit_logs` insertion in PostgreSQL.
 

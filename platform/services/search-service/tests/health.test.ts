@@ -8,8 +8,13 @@ describe('Search Service Health Endpoints', () => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
     process.env.KAFKA_ENABLED = 'false';
+    // Support both API Key and Username/Password for tests
     process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
-    
+    process.env.ELASTICSEARCH_API_KEY = 'test-api-key';
+    // Alternatively, you can use:
+    // process.env.ELASTICSEARCH_USERNAME = 'elastic';
+    // process.env.ELASTICSEARCH_PASSWORD = 'password';
+
     app = await buildApp();
   });
 

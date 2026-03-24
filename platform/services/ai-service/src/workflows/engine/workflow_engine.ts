@@ -7,9 +7,9 @@
 
 import { prisma } from '@workspace/database';
 import { WorkflowRunStatus as DBWorkflowRunStatus, StepRunStatus, CheckpointType } from '@workspace/database';
-import type { 
-  WorkflowEngine, 
-  StartWorkflowInput, 
+import type {
+  WorkflowEngine,
+  StartWorkflowInput,
   StartWorkflowResult,
   ExecuteStepResult,
   ResumeOptions,
@@ -20,9 +20,9 @@ import type {
 import { getWorkflowRegistry } from '../registry.js';
 import { executeStep } from './step_executor.js';
 import { createCheckpoint, loadLatestCheckpoint, restoreState } from './resume_manager.js';
-import { 
-  emitWorkflowStarted, 
-  emitWorkflowCompleted, 
+import {
+  emitWorkflowStarted,
+  emitWorkflowCompleted,
   emitWorkflowFailed,
 } from '../events/workflow_events.js';
 
@@ -130,7 +130,7 @@ export function createWorkflowEngine(): WorkflowEngine {
 
     // Get definition
     const definition = workflowRun.workflowDefinitionJson as unknown as WorkflowDefinition;
-    
+
     // Find next step to execute
     const currentStepIndex = workflowRun.currentStep;
     if (currentStepIndex >= definition.steps.length) {
@@ -361,7 +361,7 @@ export function createWorkflowEngine(): WorkflowEngine {
     await emitWorkflowCompleted({
       workflowRunId,
       workflowName: workflowRun.workflowName,
-      projectId: workflowRun.projectId,
+      projectId: workflowRun.projectId ?? '',
       totalTokensIn: workflowRun.totalTokensIn,
       totalTokensOut: workflowRun.totalTokensOut,
       totalCostUsd: workflowRun.totalCostUsd ? Number(workflowRun.totalCostUsd) : 0,
@@ -383,7 +383,7 @@ export function createWorkflowEngine(): WorkflowEngine {
     await emitWorkflowFailed({
       workflowRunId,
       workflowName: workflowRun.workflowName,
-      projectId: workflowRun.projectId,
+      projectId: workflowRun.projectId ?? '',
       errorStep: stepIndex,
       errorMessage: error,
     });

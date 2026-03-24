@@ -8,14 +8,25 @@ export const GatewayHandler = {
     console.log(`[Gateway] New WebSocket connection for session ${sessionId}`);
 
     // Get session info from Redis
-    const sessionData = await redis.get(RedisKeys.session(sessionId));
+    let sessionData = await redis.get(RedisKeys.session(sessionId));
+    let vmId: string;
+    let command: string;
 
     if (!sessionData) {
-      ws.close(4004, 'Session not found');
-      return;
+      // It might be a projectId from the IDE connecting directly. Check for an active VM.
+      const activeVmId = await redis.get(`vm:project:${sessionId}:active`);
+      if (activeVmId) {
+        vmId = activeVmId;
+        command = '/bin/bash'; // default fallback shell
+      } else {
+        ws.close(4004, 'Session or VM not found');
+        return;
+      }
+    } else {
+      const parsed = JSON.parse(sessionData);
+      vmId = parsed.vmId;
+      command = parsed.command;
     }
-
-    const { vmId, command } = JSON.parse(sessionData);
 
     // Create PTY session
     const termSessionId = await TerminalPTY.createSession(vmId, command, ws);

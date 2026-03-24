@@ -161,58 +161,39 @@ export function MonacoWrapper({
         onContentChange(value);
       });
     }
-    
-    // Setup LSP-ready decorations for remote cursors
-    setupRemoteCursorDecorations(monaco, editor);
   }, [getOrCreateDoc, initialValue, onContentChange, updateLocalCursor]);
 
-  // Setup remote cursor decorations
-  const setupRemoteCursorDecorations = (
-    monaco: typeof monacoType,
-    editor: monacoType.editor.IStandaloneCodeEditor
-  ) => {
-    let decorationIds: string[] = [];
-    
-    const updateDecorations = () => {
-      const newDecorations: monacoType.editor.IModelDeltaDecoration[] = [];
-      
-      remoteCursors.forEach((cursor) => {
-        const range = new monaco.Range(
-          cursor.position.line,
-          cursor.position.column,
-          cursor.position.line,
-          cursor.position.column + 1
-        );
-        
-        newDecorations.push({
-          range,
-          options: {
-            isWholeLine: false,
-            className: 'remote-cursor',
-            inlineClassName: 'remote-cursor-inline',
-            hoverMessage: { value: cursor.user.name },
-            overviewRuler: {
-              color: cursor.user.color,
-              position: monaco.editor.OverviewRulerLane.Center,
-            },
-          },
-        });
-      });
-      
-      // Update decorations
-      decorationIds = editor.deltaDecorations(decorationIds, newDecorations);
-    };
-    
-    // Update when remote cursors change
-    const unsubscribe = useYjsStore.subscribe((state: any) => {
-      updateDecorations();
-    });
-    
-    return () => {
-      unsubscribe();
-      editor.deltaDecorations(decorationIds, []);
-    };
-  };
+  // Update remote cursor decorations when remoteCursors changes
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+
+    const decorations: monacoType.editor.IModelDeltaDecoration[] = remoteCursors.map((cursor) => ({
+      range: new monaco.Range(
+        cursor.position.line,
+        cursor.position.column,
+        cursor.position.line,
+        cursor.position.column + 1
+      ),
+      options: {
+        isWholeLine: false,
+        className: 'remote-cursor',
+        inlineClassName: 'remote-cursor-inline',
+        hoverMessage: { value: cursor.user.name },
+        overviewRuler: {
+          color: cursor.user.color,
+          position: monaco.editor.OverviewRulerLane.Center,
+        },
+      },
+    }));
+
+    // Apply decorations (using a stable decoration key)
+    const model = editor.getModel();
+    if (model) {
+      model.deltaDecorations(['remote-cursors'], decorations);
+    }
+  }, [remoteCursors]);
 
   // Switch to this file when mounted
   useEffect(() => {

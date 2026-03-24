@@ -38,16 +38,16 @@ All migration files MUST follow this naming pattern:
 
 ```bash
 # 1. Edit the Prisma schema
-edit prisma/schema.prisma
+edit platform/packages/database/prisma/schema.prisma
 
 # 2. Generate migration (DO NOT apply directly to production)
-npx prisma migrate dev --name "add_status_to_projects"
+pnpm --filter @workspace/database db:migrate
 
 # 3. Review the generated SQL in prisma/migrations/{timestamp}_{name}/migration.sql
 # MUST be reviewed by another developer before merge.
 
 # 4. In CI/CD staging: auto-apply
-npx prisma migrate deploy
+pnpm --filter @workspace/database db:migrate
 
 # 5. In Production: apply via deployment pipeline (ArgoCD)
 # See §Zero-Downtime below.

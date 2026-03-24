@@ -119,9 +119,22 @@ async function createTask(
   request: FastifyRequest<{ Body: CreateTaskBody }>,
   reply: FastifyReply
 ): Promise<void> {
-  const userId = ((request as any).user as { id: string } | undefined)?.id;
+  let userId = request.headers['x-user-id'] as string || ((request as any).user as { id: string } | undefined)?.id;
+
+  if (!userId && request.headers.authorization) {
+    try {
+      const token = request.headers.authorization.split(' ')[1];
+      if (token) {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        userId = payload.sub;
+      }
+    } catch (e) {
+      // Ignore parsing errors, it will just remain unauthorized
+    }
+  }
+
   if (!userId) {
-    reply.code(401).send({ error: 'Unauthorized' });
+    reply.code(401).send({ error: 'Unauthorized: Missing user authentication context' });
     return;
   }
 

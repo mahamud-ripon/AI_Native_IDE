@@ -110,7 +110,7 @@ CIRCUIT_BREAKER_RESET_TIMEOUT=30000
 IDEMPOTENCY_TTL=86400
 
 # CORS
-ALLOWED_ORIGINS=https://platform.io,*.platform.io,http://localhost:3000
+ALLOWED_ORIGINS=https://platform.io,*.platform.io,http://localhost:5173
 ```
 
 ### 3.2 Config File (src/config/index.ts)
@@ -601,7 +601,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(fastifyCors, {
     origin: config.nodeEnv === 'production' 
       ? config.cors.allowedOrigins 
-      : ['http://localhost:3000', true],
+      : ['http://localhost:5173', true],
     credentials: true,
     allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Trace-Id'],
   });

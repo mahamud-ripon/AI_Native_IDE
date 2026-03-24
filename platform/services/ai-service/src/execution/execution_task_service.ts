@@ -14,11 +14,18 @@ import {
   ExecutionTaskSummary,
   ExecutionTaskResult,
   ExecutionTaskMessage,
-  ExecutionEventMessage,
-  EXECUTION_KAFKA_TOPICS,
 } from './execution_types.js';
-import { Kafka, Producer, Consumer } from 'kafkajs';
+import { 
+  EXECUTION_KAFKA_TOPICS,
+  LifecycleEventType,
+  ProgressEventType,
+  PatchEventType,
+  ExecutionStage
+} from './execution_event_types.js';
+import { emitEvent } from './execution_event_producer.js';
 import { config } from '../config.js';
+import { Producer } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 
 const prisma = new PrismaClient();
 
@@ -30,10 +37,7 @@ let kafkaProducer: Producer | null = null;
  */
 async function getKafkaProducer(): Promise<Producer> {
   if (!kafkaProducer) {
-    const kafka = new Kafka({
-      clientId: 'ai-service-execution',
-      brokers: config.kafkaBrokers.split(','),
-    });
+    const kafka = createKafkaClient({ clientId: 'ai-service-execution' });
     kafkaProducer = kafka.producer();
     await kafkaProducer.connect();
   }
@@ -307,32 +311,45 @@ export class ExecutionTaskService {
   ): Promise<void> {
     const task = await prisma.executionTask.findUnique({
       where: { id: taskId },
-      select: { projectId: true },
+      select: { projectId: true, workspaceId: true, createdBy: true },
     });
 
     if (!task) return;
 
-    const producer = await getKafkaProducer();
-    const message: ExecutionEventMessage = {
-      taskId,
-      projectId: task.projectId,
-      eventType: payload.eventType,
-      stage: payload.stage,
-      message: payload.message,
-      progress: payload.progress,
-      payload: payload.payload ?? null,
-      timestamp: payload.timestamp,
+    // Map Prisma event type to standard execution event type for Phase-7 compatibility
+    const eventMap: Record<string, any> = {
+      'task_queued': LifecycleEventType.TASK_QUEUED,
+      'task_started': LifecycleEventType.TASK_STARTED,
+      'task_completed': LifecycleEventType.TASK_COMPLETED,
+      'task_failed': LifecycleEventType.TASK_FAILED,
+      'task_cancelled': LifecycleEventType.TASK_CANCELLED,
+      'patch_generated': PatchEventType.PATCH_GENERATED,
+      'patch_applied': PatchEventType.PATCH_APPLIED,
+      'progress_update': ProgressEventType.PROGRESS_UPDATE,
+      'validation_started': PatchEventType.PATCH_VALIDATING,
+      'validation_completed': PatchEventType.PATCH_VALIDATION_PASSED,
     };
 
-    await producer.send({
-      topic: EXECUTION_KAFKA_TOPICS.EVENTS,
-      messages: [
-        {
-          key: taskId,
-          value: JSON.stringify(message),
+    const mappedType = eventMap[payload.eventType] || payload.eventType;
+
+    try {
+      await emitEvent({
+        taskId,
+        projectId: task.projectId,
+        workspaceId: task.workspaceId,
+        userId: task.createdBy,
+        type: mappedType,
+        stage: payload.stage as ExecutionStage,
+        progress: payload.progress,
+        payload: {
+          ...(payload.payload ?? {}),
+          message: payload.message
         },
-      ],
-    });
+        metadata: {}
+      });
+    } catch (err) {
+      console.error('[ExecutionTaskService] Failed to emit event to Kafka:', err);
+    }
   }
 
   /**

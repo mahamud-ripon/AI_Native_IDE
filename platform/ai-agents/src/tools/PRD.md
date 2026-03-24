@@ -29,7 +29,7 @@ class FileModifier:
     """Modify files via WebSocket to avoid CRDT conflicts"""
     
     def __init__(self):
-        self.ws_url = os.getenv("WS_GATEWAY_URL", "ws://localhost:8001")
+        self.ws_url = os.getenv("WS_GATEWAY_URL", "ws://localhost:8012")
         self.api_url = os.getenv("API_GATEWAY_URL", "http://localhost:8000")
     
     async def modify_file(self, project_id: str, file_path: str, content: str) -> bool:

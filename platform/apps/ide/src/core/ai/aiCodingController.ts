@@ -46,16 +46,22 @@ export type WorkflowState =
   | 'COMPLETED'
   | 'FAILED';
 
-/** State transitions */
+/** State transitions.
+ *
+ * Every non-terminal state now allows jumping directly to COMPLETED or FAILED.
+ * This handles fast-path completions where intermediate steps are skipped
+ * (e.g. the backend task finishes before the frontend ever polls VALIDATING_PATCH)
+ * and prevents the "Invalid state transition" warning that left the UI frozen.
+ */
 const WORKFLOW_TRANSITIONS: Record<WorkflowState, WorkflowState[]> = {
   IDLE: ['ANALYZING_WORKSPACE'],
-  ANALYZING_WORKSPACE: ['GENERATING_PATCH', 'FAILED'],
-  GENERATING_PATCH: ['VALIDATING_PATCH', 'FAILED'],
-  VALIDATING_PATCH: ['APPLYING_PATCH', 'FAILED'],
-  APPLYING_PATCH: ['EXECUTING_CODE', 'COMPLETED', 'FAILED'],
-  EXECUTING_CODE: ['COMPLETED', 'FAILED'],
+  ANALYZING_WORKSPACE: ['GENERATING_PATCH', 'COMPLETED', 'FAILED'],
+  GENERATING_PATCH:    ['VALIDATING_PATCH', 'APPLYING_PATCH', 'COMPLETED', 'FAILED'],
+  VALIDATING_PATCH:    ['APPLYING_PATCH',   'COMPLETED', 'FAILED'],
+  APPLYING_PATCH:      ['EXECUTING_CODE',   'COMPLETED', 'FAILED'],
+  EXECUTING_CODE:      ['COMPLETED', 'FAILED'],
   COMPLETED: ['IDLE'],
-  FAILED: ['IDLE'],
+  FAILED:    ['IDLE'],
 };
 
 export interface AICodingSession {
@@ -216,9 +222,9 @@ class AICodingController {
   /**
    * Create a new AI coding session
    */
-  createSession(projectId: string, workspaceId: string): string {
+  createSession(projectId: string, workspaceId: string, existingConversationId?: string): string {
     const id = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const conversationId = useAIChatStore.getState().createConversation(projectId, workspaceId);
+    const conversationId = existingConversationId || useAIChatStore.getState().createConversation(projectId, workspaceId);
 
     const session: AICodingSession = {
       id,
@@ -444,9 +450,15 @@ class AICodingController {
       throw new Error('No active session. Create a session first.');
     }
 
+    // Reset to IDLE if we're stuck from a previous failed run
+    if (session.workflowState !== 'IDLE') {
+      console.warn(`[AICodingController] Session stuck in ${session.workflowState}. Force-resetting to IDLE.`);
+      this.forceState(session.id, 'IDLE', 'reset for new task');
+    }
+
     // Transition to ANALYZING_WORKSPACE
     if (!this.transitionState(session.id, 'ANALYZING_WORKSPACE', 'task submitted')) {
-      throw new Error('Cannot submit task in current state');
+      throw new Error(`Cannot submit task in current state: ${session.workflowState}`);
     }
 
     // Add user message to chat
@@ -461,9 +473,15 @@ class AICodingController {
 
     try {
       // Submit to execution API
-      const response = await fetch('/api/ai/execution/tasks', {
+      const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+      
+      const response = await fetch(`${API_BASE}/api/v1/ai/execution/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           projectId: options.projectId,
           workspaceId: options.workspaceId,
@@ -500,14 +518,18 @@ class AICodingController {
         status: 'pending',
       });
 
-      // Subscribe to task events
+      // Subscribe to task events (WebSocket-based, may not work if WS not connected)
       this.subscribeToTaskEvents(session.id, taskId);
+
+      // Start REST polling fallback (reliable regardless of WS state)
+      this.pollTaskStatus(session.id, taskId);
 
       useAIChatStore.getState().setIsSending(false);
 
       return taskId;
     } catch (error) {
-      session.status = 'failed';
+      // Transition to FAILED so state is consistent
+      this.forceState(session.id, 'FAILED', `submit error: ${error instanceof Error ? error.message : 'unknown'}`);
       session.updatedAt = Date.now();
 
       useAIChatStore.getState().addMessage(session.conversationId, {
@@ -567,6 +589,170 @@ class AICodingController {
     });
 
     this.eventSubscriptions.set(sessionId, unsubscribe);
+  }
+
+  /**
+   * Poll task status via REST API as a fallback when WebSocket events are unavailable.
+   * Checks every 2 seconds for up to 2 minutes.
+   */
+  private pollTaskStatus(sessionId: string, taskId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
+    const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+    const MAX_POLLS = 60; // 60 * 2s = 2 minutes
+    const POLL_INTERVAL = 2000;
+    let pollCount = 0;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      pollCount++;
+      // Stop if session is already in terminal state
+      const currentSession = this.sessions.get(sessionId);
+      if (!currentSession || currentSession.workflowState === 'COMPLETED' || currentSession.workflowState === 'FAILED') {
+        console.log(`[AICodingController] Poll stopped: session ${sessionId} in terminal state ${currentSession?.workflowState}`);
+        return;
+      }
+
+      if (pollCount > MAX_POLLS) {
+        console.warn(`[AICodingController] Poll timeout for task ${taskId}`);
+        this.forceState(sessionId, 'FAILED', 'polling timeout');
+        this.updateAssistantMessage(currentSession, {
+          id: taskId,
+          status: 'timeout',
+          filesModified: [],
+          patchesGenerated: 0,
+          error: { message: 'Task polling timed out after 2 minutes' },
+        });
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/ai/execution/tasks/${taskId}`, {
+          headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+        });
+
+        if (!response.ok) {
+          console.warn(`[AICodingController] Poll request failed: ${response.status}`);
+          timerId = setTimeout(poll, POLL_INTERVAL);
+          return;
+        }
+
+        const data = await response.json();
+        // The GET /ai/execution/tasks/:taskId endpoint returns the task object directly
+        const status: string = data.status ?? data.currentStage ?? '';
+        const summary = data.summary; // JSON object with AI-generated content
+        // filesModified may be an array or a count depending on the API version
+        const filesModifiedRaw = data.filesModified;
+        const filesModifiedList: string[] = Array.isArray(filesModifiedRaw)
+          ? filesModifiedRaw
+          : [];
+        const filesModifiedCount: number = Array.isArray(filesModifiedRaw)
+          ? filesModifiedRaw.length
+          : (typeof filesModifiedRaw === 'number' ? filesModifiedRaw : 0);
+        const patchesApplied: number =
+          typeof data.patchesApplied === 'number' ? data.patchesApplied : 0;
+        const stageMessage: string = data.stageMessage ?? data.stage ?? '';
+
+        console.log(`[AICodingController] Poll #${pollCount} task ${taskId}: status=${status}, stage=${data.currentStage}`);
+
+        // Accept both 'completed' status AND 'completed' stage as terminal
+        const isCompleted = status === 'completed' || data.currentStage === 'completed';
+        const isFailed = !isCompleted && (
+          status === 'failed' || status === 'timeout' || status === 'cancelled' ||
+          data.currentStage === 'failed'
+        );
+
+        if (isCompleted || isFailed) {
+          // Terminal state reached — update UI
+          if (isCompleted) {
+            this.transitionState(sessionId, 'COMPLETED', 'task completed (poll)');
+
+            // Build display content — prefer the AI-generated summary, fall back to file list
+            let content: string;
+            if (summary && typeof summary === 'object') {
+              const s = summary as Record<string, unknown>;
+              content = String(s.response ?? s.content ?? s.message ?? '');
+            } else if (typeof summary === 'string' && summary.trim()) {
+              content = summary.trim();
+            } else {
+              content = '';
+            }
+
+            // Always append the files-changed block so the user sees what changed
+            if (filesModifiedList.length > 0) {
+              const fileLines = filesModifiedList.map((f: string) => `- \`${f}\``).join('\n');
+              const changesBlock =
+                `### Changes Made\n\n${fileLines}\n\n` +
+                `### Summary\nExecuted ${patchesApplied} step${patchesApplied !== 1 ? 's' : ''} across ` +
+                `${filesModifiedList.length} file${filesModifiedList.length !== 1 ? 's' : ''}.`;
+              content = content ? `${content}\n\n${changesBlock}` : changesBlock;
+            } else if (!content) {
+              content = '✅ Task completed successfully.';
+            }
+
+            // Update the pending assistant message
+            const messages = useAIChatStore.getState().getMessages(currentSession.conversationId);
+            const assistantMsg = messages.find(
+              (m: { taskId?: string; role: string }) => m.taskId === taskId && m.role === 'assistant'
+            );
+            if (assistantMsg) {
+              useAIChatStore.getState().updateMessage(currentSession.conversationId, assistantMsg.id, {
+                content,
+                status: 'complete',
+                metadata: {
+                  filesModified: filesModifiedList,
+                  patchesGenerated: patchesApplied,
+                },
+              });
+            } else {
+              // No pending message found — add a new one
+              useAIChatStore.getState().addMessage(currentSession.conversationId, {
+                role: 'assistant',
+                content,
+                taskId,
+                status: 'complete',
+              });
+            }
+          } else {
+            // Failed / timeout / cancelled
+            this.forceState(sessionId, 'FAILED', `task ${status} (poll)`);
+            const errorObj = data.error;
+            const errorMsg =
+              (errorObj && typeof errorObj === 'object'
+                ? (errorObj as Record<string, unknown>).message
+                : null) ||
+              stageMessage ||
+              `Task ${status}`;
+            const content = `❌ Task ${status}\n\n${errorMsg}`;
+
+            const messages = useAIChatStore.getState().getMessages(currentSession.conversationId);
+            const assistantMsg = messages.find(
+              (m: { taskId?: string; role: string }) => m.taskId === taskId && m.role === 'assistant'
+            );
+            if (assistantMsg) {
+              useAIChatStore.getState().updateMessage(currentSession.conversationId, assistantMsg.id, {
+                content,
+                status: 'error',
+              });
+            }
+          }
+          return; // Stop polling
+        }
+
+        // Not terminal yet — poll again
+        timerId = setTimeout(poll, POLL_INTERVAL);
+      } catch (err) {
+        console.warn(`[AICodingController] Poll error for task ${taskId}:`, err);
+        timerId = setTimeout(poll, POLL_INTERVAL);
+      }
+    };
+
+    // Start first poll after a short delay (give WS a chance first)
+    timerId = setTimeout(poll, POLL_INTERVAL);
   }
 
   /**
@@ -865,8 +1051,14 @@ class AICodingController {
     if (!session || !session.taskId) return false;
 
     try {
-      const response = await fetch(`/api/ai/execution/tasks/${session.taskId}/cancel`, {
+      const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+
+      const response = await fetch(`${API_BASE}/api/v1/ai/execution/tasks/${session.taskId}/cancel`, {
         method: 'POST',
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
       });
 
       if (!response.ok) {

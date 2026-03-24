@@ -1,4 +1,5 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest } from 'fastify';
+import WebSocket from 'ws';
 import { checkRateLimit, getRedis } from '../lib/redis';
 import { logger } from '../lib/logger';
 
@@ -7,14 +8,19 @@ const RATE_LIMIT = {
   windowSeconds: 1,
 };
 
+/**
+ * WebSocket rate limiter middleware.
+ * Returns boolean indicating if connection is allowed.
+ * Caller must close socket if false is returned.
+ */
 export async function wsRateLimiterMiddleware(
   request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+  socket: WebSocket
+): Promise<boolean> {
   const redis = getRedis();
 
   if (!redis) {
-    return;
+    return true; // Allow if Redis unavailable
   }
 
   const ip = request.ip || 'unknown';
@@ -23,20 +29,15 @@ export async function wsRateLimiterMiddleware(
   try {
     const result = await checkRateLimit(key, RATE_LIMIT.limit, RATE_LIMIT.windowSeconds);
 
-    reply.header('X-RateLimit-Limit', RATE_LIMIT.limit);
-    reply.header('X-RateLimit-Remaining', result.remaining);
-    reply.header('X-RateLimit-Reset', result.resetAt);
-
     if (!result.allowed) {
       logger.warn({ ip, limit: RATE_LIMIT.limit }, 'WebSocket rate limit exceeded');
-      reply.status(429).send({
-        success: false,
-        error: 'Too Many Requests',
-        retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000),
-      });
+      return false; // Caller will close the socket
     }
+
+    return true;
   } catch (error) {
     logger.error({ error }, 'Rate limiter error');
+    return true; // Allow on error (fail open for availability)
   }
 }
 

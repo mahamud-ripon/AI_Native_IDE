@@ -11,21 +11,20 @@
  * - Distributed locking (Redis)
  */
 
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import Redis from 'ioredis';
 import { config } from '../config.js';
 import { getExecutionTaskService, ExecutionTaskService } from './execution_task_service.js';
 import { getTaskOrchestrator, TaskOrchestrator } from '../coding/execution/task_orchestrator.js';
 import { getRollbackManager, RollbackManager } from '../coding/execution/rollback_manager.js';
 import { WorkspaceFS } from '../coding/workspace/index.js';
+import { getDiffEngine } from '../coding/patch/index.js';
 import { ExecutionTaskMessage, EXECUTION_STAGES, EXECUTION_KAFKA_TOPICS } from './execution_types.js';
 import { ExecutionTaskStatus, ExecutionEventType } from '@prisma/client';
 
 // Kafka configuration
-const kafka = new Kafka({
-  clientId: 'ai-service-execution-worker',
-  brokers: config.kafkaBrokers.split(','),
-});
+const kafka = createKafkaClient({ clientId: 'ai-service-execution-worker', groupId: 'ai-execution-workers' });
 
 // Redis for distributed locking and concurrency
 const redis = new Redis(config.redisUrl);
@@ -227,7 +226,9 @@ async function processTask(
 
     // Create workspace from root path
     const rootPath = message.rootPath ?? `/workspaces/${workspaceId}`;
+    console.log(`[ExecutionWorker] Using root path: ${rootPath}${message.rootPath ? '' : ' (default)'}`);
     const workspace = new WorkspaceFS({ rootPath });
+    workspace.setDiffEngine(getDiffEngine());
 
     // Register workspace with orchestrator
     orchestrator.registerWorkspace(workspaceId, workspace);
@@ -375,6 +376,7 @@ async function processTask(
         currentStage: EXECUTION_STAGES.COMPLETED,
         stageMessage: 'Task completed successfully',
         summary: {
+          response: result.agentResult?.summary ?? '',
           filesChanged: result.agentResult?.filesChanged ?? [],
           patchesGenerated: result.agentResult?.patches.length ?? 0,
         },
@@ -405,6 +407,48 @@ async function processTask(
       });
 
       console.log(`[ExecutionWorker] Task ${taskId} completed successfully`);
+
+      // ========================================
+      // SYNC FILES TO PROJECT SERVICE (S3 + DB)
+      // ========================================
+      if (result.agentResult?.filesChanged && result.agentResult.filesChanged.length > 0) {
+        try {
+          console.log(`[ExecutionWorker] Syncing ${result.agentResult.filesChanged.length} files to project service...`);
+          const files = [];
+          for (const filePath of result.agentResult.filesChanged) {
+            try {
+              const content = await workspace.readFile(filePath);
+              files.push({ path: filePath, content });
+            } catch (err) {
+              console.warn(`[ExecutionWorker] Could not read modified file ${filePath} for sync:`, err);
+            }
+          }
+          
+          if (files.length > 0) {
+            const syncUrl = `${config.projectServiceUrl}/api/v1/projects/${projectId}/files/sync`;
+            const syncRes = await fetch(syncUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-internal-api-key': config.internalApiKey,
+              },
+              body: JSON.stringify({
+                files,
+                userId: message.userId ?? 'system',
+              }),
+            });
+            
+            if (!syncRes.ok) {
+              const syncErr = await syncRes.text();
+              console.error(`[ExecutionWorker] Failed to sync files to project service: ${syncRes.status} ${syncErr}`);
+            } else {
+              console.log(`[ExecutionWorker] Successfully synced ${files.length} files to project service`);
+            }
+          }
+        } catch (syncErr) {
+          console.error(`[ExecutionWorker] Error during file sync:`, syncErr);
+        }
+      }
     } else {
       // Task failed
       const error = result.error;
@@ -516,6 +560,8 @@ async function handleMessage(
   if (!message.value) {
     return;
   }
+  
+  console.log(`[ExecutionWorker] Received Kafka message offset ${message.offset} on topic ${payload.topic}`);
 
   try {
     const taskMessage: ExecutionTaskMessage = JSON.parse(message.value.toString());

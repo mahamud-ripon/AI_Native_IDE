@@ -1,3 +1,12 @@
+// Load environment variables first - from platform root
+import { config } from 'dotenv';
+import { resolve } from 'path';
+// Go up from services/api-gateway/src to platform root
+config({ path: resolve(__dirname, '../../../.env') });
+
+// Validate environment variables at startup
+import '@workspace/config/env';
+
 import { buildApp } from './app';
 
 const PORT = parseInt(process.env.PORT || '8000', 10);
@@ -15,3 +24,4 @@ const startServer = async () => {
 };
 
 startServer();
+

@@ -39,9 +39,9 @@ class TestPromptCaching:
         """Test cache savings calculation."""
         cm = CostManager()
         savings = cm.estimate_cache_savings("tier1", 10000)
-        # 10K tokens at tier1: regular = $0.15, cached = $0.015, savings = $0.135
+        # 10K tokens at tier1: regular = $0.03 (input price), cached = $0.003, savings = $0.027
         assert savings > 0
-        expected_savings = (10000 / 1_000_000) * 15.0 * 0.90
+        expected_savings = (10000 / 1_000_000) * 3.0 * 0.90
         assert abs(savings - expected_savings) < 0.001
 
     def test_create_cached_system_message_large_prompt(self):

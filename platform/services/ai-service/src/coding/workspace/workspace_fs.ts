@@ -38,6 +38,10 @@ export class WorkspaceFS {
 
   constructor(config: Partial<WorkspaceConfig> = {}) {
     this.config = { ...DEFAULT_WORKSPACE_CONFIG, ...config };
+    // Normalize root path to ensure consistent drive letters and separators on Windows
+    if (this.config.rootPath) {
+      this.config.rootPath = path.resolve(this.config.rootPath);
+    }
   }
 
   /**
@@ -131,14 +135,18 @@ export class WorkspaceFS {
   /**
    * Resolve and validate path
    */
-  private resolvePath(filePath: string): string {
-    const resolved = path.resolve(this.config.rootPath, filePath);
-    
-    // Ensure path is within workspace
-    if (!resolved.startsWith(this.config.rootPath)) {
+  private resolvePath(relativePath: string): string {
+    // 1. Join paths
+    const resolved = path.resolve(this.config.rootPath, relativePath);
+
+    // 2. Ensure resolved path is within rootPath (prevent traversal)
+    // On Windows, use path.relative to handle drive letter case differences (d:\ vs D:\)
+    const relative = path.relative(this.config.rootPath, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
       throw new WorkspaceSafetyError(
-        `Path traversal detected: ${filePath}`,
-        'path_ignored'
+        `Path traversal detected: ${relativePath} (resolved to ${resolved}) is outside workspace root ${this.config.rootPath}`,
+        'path_traversal',
+        { relativePath, resolved, rootPath: this.config.rootPath }
       );
     }
 
@@ -150,8 +158,10 @@ export class WorkspaceFS {
    */
   private isIgnored(filePath: string): boolean {
     const relativePath = path.relative(this.config.rootPath, filePath);
+    // Normalize to forward slashes for cross-platform matching
+    const normalized = relativePath.split(path.sep).join('/');
     return this.config.ignoredPaths.some(ignored => 
-      relativePath.startsWith(ignored) || relativePath.includes(`/${ignored}/`)
+      normalized.startsWith(ignored) || normalized.includes(`/${ignored}/`) || normalized === ignored
     );
   }
 

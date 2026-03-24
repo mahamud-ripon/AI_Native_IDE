@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** execution-service (Port 8004)  
-> **Tech Stack:** Node.js + Firecracker + WebSocket + Redis
+> **Tech Stack:** Node.js + Fastify + Firecracker + WebSocket + Redis
 
 ---
 
@@ -21,7 +21,7 @@ The Execution Service is the heavy lifter of the platform. It safely runs arbitr
 mkdir -p execution-service/src/{vm_manager,network,streams,security,rpc,controllers,services,events,lib,config}
 cd execution-service
 npm init -y
-npm install express ws ioredis @prisma/client kafkajs zod dotenv cors helmet uuid
+npm install fastify @fastify/cors @fastify/helmet ws ioredis @prisma/client kafkajs zod dotenv uuid
 npm install -D typescript @types/node @types/ws ts-node prisma
 npx tsc --init
 ```
@@ -39,23 +39,23 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
     "ws": "^8.14.0",
     "ioredis": "^5.3.2",
-    "@prisma/client": "^5.8.0",
+    "@prisma/client": "^5.10.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "@types/ws": "^8.5.10",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -605,7 +605,7 @@ export const VaultAgent = {
 ### 8.1 Execution Controller (src/controllers/execution_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { Prewarmer } from '../vm_manager/prewarmer';
 import { TerminalPTY } from '../streams/terminal_pty';
@@ -941,9 +941,9 @@ model CodeExecution {
 ### 12.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { config } from './config';
@@ -951,8 +951,8 @@ import { authMiddleware } from './middleware/auth';
 import { ExecutionController } from './controllers/execution_controller';
 import { GatewayHandler } from './rpc/gateway_handler';
 
-const app = express();
-const server = createServer(app);
+const app = Fastify({ logger: true });
+const server = createServer(app.server);
 
 // WebSocket server
 const wss = new WebSocketServer({ server, path: '/api/v1/exec/ws' });
@@ -966,36 +966,23 @@ wss.on('connection', (ws, req) => {
   }
 });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'execution-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'execution-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
-app.get('/api/v1/health/vm-pool', (req: Request, res: Response) => {
-  const status = Prewarmer.getPoolStatus();
-  res.json(status);
-});
+app.get('/api/v1/health/vm-pool', async () => Prewarmer.getPoolStatus());
 
 // Protected endpoints
-app.post('/api/v1/exec/run', authMiddleware, ExecutionController.runCode);
-app.post('/api/v1/exec/install', authMiddleware, ExecutionController.installPackages);
-app.get('/api/v1/exec/history/:project_id', authMiddleware, ExecutionController.getHistory);
-app.post('/api/v1/exec/terminate/:session_id', authMiddleware, ExecutionController.terminate);
-app.post('/api/v1/exec/hibernate/:project_id', authMiddleware, ExecutionController.hibernate);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.post('/api/v1/exec/run', { preHandler: authMiddleware }, ExecutionController.runCode);
+app.post('/api/v1/exec/install', { preHandler: authMiddleware }, ExecutionController.installPackages);
+app.get('/api/v1/exec/history/:project_id', { preHandler: authMiddleware }, ExecutionController.getHistory);
+app.post('/api/v1/exec/terminate/:session_id', { preHandler: authMiddleware }, ExecutionController.terminate);
+app.post('/api/v1/exec/hibernate/:project_id', { preHandler: authMiddleware }, ExecutionController.hibernate);
 
 export { app, server };
 ```

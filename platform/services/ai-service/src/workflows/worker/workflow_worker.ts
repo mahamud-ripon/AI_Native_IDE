@@ -5,18 +5,16 @@
  * Handles start, resume, and cancel commands.
  */
 
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
 import Redis from 'ioredis';
 import { config } from '../../config.js';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { getWorkflowEngine } from '../engine/workflow_engine.js';
 import { getWorkflowRegistry } from '../registry.js';
 import { prisma } from '@workspace/database';
 
-// Kafka configuration
-const kafka = new Kafka({
-  clientId: 'ai-service-workflow-worker',
-  brokers: config.kafkaBrokers.split(','),
-});
+// Kafka configuration - use createKafkaClient for proper SASL/SSL support
+const kafka = createKafkaClient({ clientId: 'ai-service-workflow-worker' });
 
 // Redis for distributed locking
 const redis = new Redis(config.redisUrl);

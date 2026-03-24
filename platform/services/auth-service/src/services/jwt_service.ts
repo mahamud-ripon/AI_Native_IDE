@@ -1,34 +1,61 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Load keys from environment or generate ephemeral for development
-let privateKey: string;
-let publicKey: string;
+const KEYS_FILE = path.join(process.cwd(), '.jwt-keys.json');
 
-if (process.env.JWT_PRIVATE_KEY && process.env.JWT_PUBLIC_KEY) {
-  // Use environment keys (production/staging with proper key management)
-  privateKey = process.env.JWT_PRIVATE_KEY.replace(/\\n/g, '\n');
-  publicKey = process.env.JWT_PUBLIC_KEY.replace(/\\n/g, '\n');
-} else {
-  // Generate ephemeral keys for development only
-  console.warn('[JWT] Using ephemeral keys - for production, set JWT_PRIVATE_KEY and JWT_PUBLIC_KEY env vars');
+// Load keys from environment, file, or generate new ones
+function loadKeys(): { privateKey: string; publicKey: string } {
+  // 1. Try environment variables first
+  if (process.env.JWT_PRIVATE_KEY && process.env.JWT_PUBLIC_KEY) {
+    return {
+      privateKey: process.env.JWT_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      publicKey: process.env.JWT_PUBLIC_KEY.replace(/\\n/g, '\n'),
+    };
+  }
+
+  // 2. Try to load from file for development persistence
+  try {
+    if (fs.existsSync(KEYS_FILE)) {
+      const saved = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
+      if (saved.privateKey && saved.publicKey) {
+        console.log('[JWT] Loaded keys from file');
+        return saved;
+      }
+    }
+  } catch {
+    console.warn('[JWT] Failed to load keys from file');
+  }
+
+  // 3. Generate new keys
+  console.warn('[JWT] Generating new ephemeral keys');
   const keyPair = crypto.generateKeyPairSync('rsa', {
     modulusLength: 2048,
     publicKeyEncoding: { type: 'spki', format: 'pem' },
     privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
   });
-  privateKey = keyPair.privateKey;
-  publicKey = keyPair.publicKey;
-  
-  // Export public key for gateway to use
-  console.log('[JWT] Public Key for Gateway (copy to api-gateway .env):');
-  console.log('-----BEGIN PUBLIC KEY-----');
-  console.log(publicKey.replace('-----BEGIN PUBLIC KEY-----\n', '').replace('\n-----END PUBLIC KEY-----', ''));
-  console.log('-----END PUBLIC KEY-----');
+
+  const keys = {
+    privateKey: keyPair.privateKey,
+    publicKey: keyPair.publicKey,
+  };
+
+  // Save to file for persistence
+  try {
+    fs.writeFileSync(KEYS_FILE, JSON.stringify(keys));
+    console.log('[JWT] Keys saved to .jwt-keys.json');
+  } catch {
+    console.warn('[JWT] Failed to save keys');
+  }
+
+  return keys;
 }
+
+const { privateKey, publicKey } = loadKeys();
 
 export const JwtService = {
   
@@ -43,7 +70,7 @@ export const JwtService = {
 
     return jwt.sign(payload, privateKey, {
       algorithm: 'RS256',
-      expiresIn: '15m',
+      expiresIn: '24h',
       jwtid: crypto.randomUUID(), // Unique exact trace identifier
     });
   },

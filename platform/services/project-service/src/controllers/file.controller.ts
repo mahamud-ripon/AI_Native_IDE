@@ -5,6 +5,7 @@ import { hashContent } from '../lib/crypto';
 import { permissionService, storageService, kafkaService } from '../services';
 import { CreateFileSchema, UpdateFileSchema, MoveFileSchema, GetFileTreeQuerySchema } from '../dto';
 import { NotFoundError, ForbiddenError, ValidationError } from '../middleware';
+import { config } from '../config';
 
 const logger = createLogger('file-controller');
 
@@ -107,9 +108,17 @@ export async function getFileTree(
       throw new ForbiddenError('Access denied to this project');
     }
 
-    const branchRecord = await prisma.projectBranch.findFirst({
+    // Try to find by named branch first, then fall back to the default branch
+    // This keeps getFileTree and getFileContent consistent (both end up on the same branch)
+    let branchRecord = await prisma.projectBranch.findFirst({
       where: { projectId: id, name: branch },
     });
+
+    if (!branchRecord) {
+      branchRecord = await prisma.projectBranch.findFirst({
+        where: { projectId: id, isDefault: true },
+      });
+    }
 
     if (!branchRecord) {
       throw new NotFoundError('Branch');
@@ -123,7 +132,7 @@ export async function getFileTree(
 
     const tree = buildFileTree(files);
 
-    logger.debug('File tree retrieved', { projectId: id, branch, fileCount: files.length, traceId });
+    logger.debug('File tree retrieved', { projectId: id, branch: branchRecord.name, fileCount: files.length, traceId });
 
     reply.send({
       success: true,
@@ -163,10 +172,15 @@ export async function getFile(
     }
 
     let content = '';
-    if (file.s3Key) {
+    if (file.inlineContent) {
+      // Inline storage path - decode BYTEA buffer to UTF-8 string
+      content = file.inlineContent.toString('utf-8');
+    } else if (file.s3Key) {
+      // S3 storage path - download from object storage
       const result = await storageService.downloadFile(file.s3Key);
       content = result.content;
     }
+    // Files with neither field are directories - content stays ''
 
     reply.send({
       success: true,
@@ -197,12 +211,15 @@ export async function getFileContent(
 ): Promise<void> {
   const userId = (request as AuthenticatedRequest).user.sub;
   const { id } = request.params as { id: string };
-  const { path } = request.query as { path?: string };
+  const rawPath = (request.query as { path?: string }).path;
   const traceId = request.id;
 
-  if (!path) {
+  if (!rawPath) {
     throw new ValidationError('path query parameter is required');
   }
+
+  // Normalize path: strip leading slash to match DB storage format (e.g. src/main.tsx not /src/main.tsx)
+  const path = rawPath.replace(/^\/+/, '');
 
   try {
     const hasAccess = await permissionService.checkAccess(userId, id, 'viewer');
@@ -219,20 +236,26 @@ export async function getFileContent(
       throw new NotFoundError('Default branch not found');
     }
 
-    // Find file by path
+    // Find file by path (normalized)
     const file = await prisma.projectFile.findFirst({
       where: { projectId: id, branchId: branch.id, path, deletedAt: null }
     });
 
     if (!file) {
-      throw new NotFoundError('File not found');
+      logger.warn('File not found in DB', { projectId: id, path, branchId: branch.id, branchName: branch.name, traceId });
+      throw new NotFoundError(`File not found: ${path}`);
     }
 
     let content = '';
-    if (file.s3Key) {
+    if (file.inlineContent) {
+      // Inline storage path - decode BYTEA buffer to UTF-8 string
+      content = file.inlineContent.toString('utf-8');
+    } else if (file.s3Key) {
+      // S3 storage path - download from object storage
       const result = await storageService.downloadFile(file.s3Key);
       content = result.content;
     }
+    // Files with neither field are directories - content stays ''
 
     logger.debug('File content retrieved', { projectId: id, path, traceId });
 
@@ -281,34 +304,50 @@ export async function createFile(
       throw new NotFoundError('Default branch');
     }
 
-    // Check if file already exists
+    // Check if file already exists (normalize path)
+    const normalizedPath = data.path.replace(/^\/+/, '');
     const existingFile = await prisma.projectFile.findFirst({
-      where: { projectId: id, branchId: branch.id, path: data.path, deletedAt: null },
+      where: { projectId: id, branchId: branch.id, path: normalizedPath, deletedAt: null },
     });
 
     if (existingFile) {
       throw new ValidationError('File already exists at this path');
     }
 
+    const INLINE_THRESHOLD = 64 * 1024; // 64 KB
     let s3Key: string | null = null;
+    let inlineContent: Buffer | null = null;
     let contentHash: string | null = null;
     let sizeBytes = 0;
 
     if (!data.isDirectory && data.content) {
-      const uploadResult = await storageService.uploadFile(id, data.path, data.content);
-      s3Key = uploadResult.s3Key;
-      contentHash = uploadResult.contentHash;
-      sizeBytes = uploadResult.sizeBytes;
+      const contentBuffer = Buffer.from(data.content, 'utf-8');
+      sizeBytes = contentBuffer.length;
+      contentHash = hashContent(data.content);
+
+      if (!config.storage.alwaysUseS3 && sizeBytes <= INLINE_THRESHOLD) {
+        // Small file - store inline in PostgreSQL
+        inlineContent = contentBuffer;
+        s3Key = null;
+      } else {
+        // Large file - upload to S3
+        const uploadResult = await storageService.uploadFile(id, data.path, data.content);
+        s3Key = uploadResult.s3Key;
+        contentHash = uploadResult.contentHash;
+        sizeBytes = uploadResult.sizeBytes;
+      }
     }
 
     const file = await prisma.projectFile.create({
       data: {
         projectId: id,
         branchId: branch.id,
-        path: data.path,
+        // Normalize path: strip leading slash
+        path: data.path.replace(/^\/+/, ''),
         name: data.path.split('/').pop() || data.path,
         isDirectory: data.isDirectory,
-        s3Key,
+        inlineContent: inlineContent ?? undefined,
+        s3Key: s3Key ?? null,
         contentHash,
         sizeBytes,
         language: data.isDirectory ? null : detectLanguage(data.path),
@@ -409,6 +448,7 @@ export async function updateFile(
     const updatedFile = await prisma.projectFile.update({
       where: { id: fileId },
       data: {
+        inlineContent: null,
         s3Key: uploadResult.s3Key,
         contentHash: uploadResult.contentHash,
         sizeBytes: uploadResult.sizeBytes,
@@ -579,65 +619,103 @@ export async function syncFiles(
   reply: FastifyReply
 ): Promise<void> {
   const { id } = request.params as { id: string };
-  const userId = (request as AuthenticatedRequest).user.sub;
-  const traceId = request.headers['x-trace-id'] as string || crypto.randomUUID();
   
+  const body = request.body as {
+    files: Array<{ path: string; content: string }>;
+    userId?: string;
+  };
+  
+  const userId = (request as any).user?.sub || body.userId;
+  if (!userId) {
+    throw new ValidationError('userId is required for internal sync');
+  }
+  
+  const traceId = request.headers['x-trace-id'] as string || crypto.randomUUID();
+
   const data = request.body as {
     files: Array<{ path: string; content: string }>;
   };
-  
+
   if (!data.files || !Array.isArray(data.files) || data.files.length === 0) {
     throw new ValidationError('files array is required');
   }
-  
+
   try {
-    // Verify project exists and user has access
+    // Verify project exists
     const project = await prisma.project.findUnique({
       where: { id },
       include: { collaborators: true }
     });
-    
+
     if (!project) {
       throw new NotFoundError('Project not found');
     }
+
+    const isInternal = request.headers['x-internal-api-key'] !== undefined;
     
-    const hasAccess = project.collaborators.some((c: { userId: string; }) => c.userId === userId) || project.ownerId === userId;
-    if (!hasAccess) {
-      throw new ForbiddenError('Access denied');
+    // Fallback to project owner if userId is 'system' or not a UUID (to avoid Prisma UUID errors)
+    let actualUserId = userId;
+    if (actualUserId === 'system' || !actualUserId.includes('-')) {
+      actualUserId = project.ownerId;
     }
-    
+
+    if (!isInternal) {
+      const hasAccess = project.collaborators.some((c: { userId: string; }) => c.userId === actualUserId) || project.ownerId === actualUserId;
+      if (!hasAccess) {
+        throw new ForbiddenError('Access denied');
+      }
+    }
+
     const results: Array<{ path: string; success: boolean; id?: string; error?: string }> = [];
-    
+
     // Get default branch for project
     const branch = await prisma.projectBranch.findFirst({
       where: { projectId: id, isDefault: true }
     });
-    
+
     if (!branch) {
       throw new NotFoundError('Default branch not found');
     }
-    
+
+    const INLINE_THRESHOLD = 64 * 1024; // 64 KB
+
     for (const file of data.files) {
       try {
-        // Upload to S3 first
-        const uploadResult = await storageService.uploadFile(id, file.path, file.content);
-        
-        // Check if file exists
+        // Apply 64KB threshold for dual-storage strategy
+        const contentBuffer = Buffer.from(file.content, 'utf-8');
+        const sizeBytes = contentBuffer.length;
+        const contentHash = hashContent(file.content);
+        let s3Key: string | null = null;
+        let inlineContent: Buffer | null = null;
+
+        if (!config.storage.alwaysUseS3 && sizeBytes <= INLINE_THRESHOLD) {
+          // Small file - store inline in PostgreSQL
+          inlineContent = contentBuffer;
+          s3Key = null;
+        } else {
+          // Large file - upload to S3
+          const uploadResult = await storageService.uploadFile(id, file.path, file.content);
+          s3Key = uploadResult.s3Key;
+        }
+
+        // Check if file exists (normalize path)
+        const normalizedFilePath = file.path.replace(/^\/+/, '');
         const existingFile = await prisma.projectFile.findFirst({
-          where: { projectId: id, branchId: branch.id, path: file.path, deletedAt: null }
+          where: { projectId: id, branchId: branch.id, path: normalizedFilePath, deletedAt: null }
         });
-        
+
         let fileRecord;
-        
+
         if (existingFile) {
           // Update existing file
           fileRecord = await prisma.projectFile.update({
             where: { id: existingFile.id },
             data: {
-              s3Key: uploadResult.s3Key,
-              contentHash: uploadResult.contentHash,
-              sizeBytes: uploadResult.sizeBytes,
-              lastEditedBy: userId,
+              inlineContent: inlineContent ?? undefined,
+              s3Key: s3Key ?? null,
+              contentHash,
+              sizeBytes,
+              lastEditedBy: actualUserId,
               lastEditedAt: new Date()
             }
           });
@@ -647,60 +725,67 @@ export async function syncFiles(
             data: {
               projectId: id,
               branchId: branch.id,
-              path: file.path,
-              name: file.path.split('/').pop() || file.path,
+              path: normalizedFilePath,
+              name: normalizedFilePath.split('/').pop() || normalizedFilePath,
               isDirectory: false,
-              s3Key: uploadResult.s3Key,
-              contentHash: uploadResult.contentHash,
-              sizeBytes: uploadResult.sizeBytes,
+              inlineContent: inlineContent ?? undefined,
+              s3Key: s3Key ?? null,
+              contentHash,
+              sizeBytes,
               language: detectLanguage(file.path),
-              createdBy: userId,
-              lastEditedBy: userId,
+              createdBy: actualUserId,
+              lastEditedBy: actualUserId,
               lastEditedAt: new Date()
             }
           });
         }
-        
+
         results.push({ path: file.path, success: true, id: fileRecord.id });
-        
-        // Publish file event to single topic
-        await kafkaService.publish('project.files.events', {
-          event: existingFile ? 'file.modified' : 'file.created',
+
+        // Publish file event with canonical KafkaEventEnvelope
+        const eventType = existingFile ? 'file.modified' : 'file.created';
+        await kafkaService.publish(eventType, {
+          event_id: crypto.randomUUID(),
+          event_type: eventType,
+          timestamp: new Date().toISOString(),
+          source_service: 'project-service',
+          trace_id: traceId,
+          version: '1.0',
+          payload: {
+            project_id: id,
+            file_id: fileRecord.id,
+            file_path: file.path,
+            user_id: userId,
+          },
+        });
+
+        logger.info('File synced', {
           projectId: id,
           fileId: fileRecord.id,
-          filePath: file.path,
-          userId,
-          traceId,
-          timestamp: Date.now()
-        });
-        
-        logger.info('File synced', { 
-          projectId: id, 
-          fileId: fileRecord.id, 
-          path: file.path, 
-          action: existingFile ? 'modified' : 'created',
-          userId, 
-          traceId 
-        });
-        
-      } catch (fileError) {
-        logger.error('Failed to sync file', { 
-          error: fileError instanceof Error ? fileError.message : 'Unknown error',
-          projectId: id, 
           path: file.path,
-          traceId 
+          action: existingFile ? 'modified' : 'created',
+          userId,
+          traceId
         });
-        results.push({ 
-          path: file.path, 
-          success: false, 
-          error: fileError instanceof Error ? fileError.message : 'Unknown error' 
+
+      } catch (fileError) {
+        logger.error('Failed to sync file', {
+          error: fileError instanceof Error ? fileError.message : 'Unknown error',
+          projectId: id,
+          path: file.path,
+          traceId
+        });
+        results.push({
+          path: file.path,
+          success: false,
+          error: fileError instanceof Error ? fileError.message : 'Unknown error'
         });
       }
     }
-    
+
     const successCount = results.filter(r => r.success).length;
     logger.info('Files synced', { projectId: id, total: data.files.length, success: successCount, userId, traceId });
-    
+
     reply.send({
       success: true,
       data: {
@@ -711,7 +796,7 @@ export async function syncFiles(
       },
       traceId
     });
-    
+
   } catch (error) {
     logger.error('Failed to sync files', { error, projectId: id, userId, traceId });
     throw error;

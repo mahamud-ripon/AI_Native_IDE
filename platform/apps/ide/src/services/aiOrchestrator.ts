@@ -17,8 +17,7 @@
 
 import { groqClient } from './groqClient';
 import { editorContextService } from './editorContextService';
-import { editorManager } from '../core/editor/editorManager';
-import { editorModelManager } from '../core/editor/modelManager';
+import { useIDEStore, ideEventBus } from '../stores/ideStore';
 
 // ========================================
 // TYPES
@@ -303,8 +302,10 @@ class AIOrchestrator {
       // 6. Security Agent
       await this.runAgent('security', state, options);
 
-      // Apply all generated files
-      await this.applyFiles(state, options);
+      // Apply all generated files and capture persistence result
+      const applyResult = await this.applyFiles(state, options);
+      // Attach result so callers can show an accurate status message
+      (state as OrchestratorState & { applyResult?: unknown }).applyResult = applyResult;
 
       state.status = 'completed';
       state.completedAt = Date.now();
@@ -428,11 +429,14 @@ class AIOrchestrator {
   private parseFilesFromOutput(output: string): GeneratedFile[] {
     const files: GeneratedFile[] = [];
     
+    // Normalize CRLF to LF before regex matching
+    const normalized = output.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
     // Match: // FILE: path followed by code block
     const regex = /\/\/\s*FILE:\s*(.+?)\n```(\w*)\n([\s\S]*?)\n```/g;
     
     let match;
-    while ((match = regex.exec(output)) !== null) {
+    while ((match = regex.exec(normalized)) !== null) {
       const path = match[1].trim();
       const language = match[2] || 'typescript';
       const content = match[3].trim();
@@ -446,7 +450,7 @@ class AIOrchestrator {
     const mdRegex = /```(\w+)\n([\s\S]*?)\n```/g;
     let fileIndex = files.length;
     
-    while ((match = mdRegex.exec(output)) !== null) {
+    while ((match = mdRegex.exec(normalized)) !== null) {
       const language = match[1];
       const content = match[2].trim();
 
@@ -455,7 +459,7 @@ class AIOrchestrator {
       if (files.some(f => f.content === content)) continue;
 
       // Infer path
-      let path = `src/file${fileIndex > 0 ? fileIndex : ''}.${language === 'typescript' ? 'ts' : language}`;
+      const path = `src/file${fileIndex > 0 ? fileIndex : ''}.${language === 'typescript' ? 'ts' : language}`;
       
       files.push({ path, content, language });
       fileIndex++;
@@ -465,33 +469,89 @@ class AIOrchestrator {
   }
 
   /**
-   * Apply all generated files to the editor
+   * Apply all generated files to the IDE store and open them as editor tabs.
+   * Also attempts to persist via filesystem API when available.
+   *
+   * BUG 4 FIX:
+   * - Deduplicates files before applying (later agents can re-emit the same path).
+   * - Tracks which files were persisted vs only in-memory so the caller can
+   *   show an accurate status message.
+   * - Returns a result object instead of void so AIChatPanel can surface it.
    */
   private async applyFiles(
     state: OrchestratorState,
     options: OrchestratorOptions
-  ): Promise<void> {
+  ): Promise<{ persisted: string[]; inMemoryOnly: string[] }> {
+    const store = useIDEStore.getState();
+    const { useTabsStore } = await import('../state/tabsStore');
+    const tabsStore = useTabsStore.getState();
+
+    // Deduplicate: last-writer wins per path (later agents may correct earlier ones)
+    const uniqueFiles = new Map<string, GeneratedFile>();
     for (const file of state.files) {
+      uniqueFiles.set(file.path, file);
+    }
+
+    const persisted: string[] = [];
+    const inMemoryOnly: string[] = [];
+
+    for (const file of uniqueFiles.values()) {
       try {
-        let model = editorManager.getModel(options.projectId, file.path);
-        
-        if (!model) {
-          // Create new file
-          const fileModel = editorModelManager.getOrCreate(
-            (window as any).monaco,
-            options.projectId,
-            file.path
-          );
-          model = fileModel.model;
+        // 1. Write into IDE in-memory store
+        store.setFileContent(file.path, file.content);
+
+        // 2. Open as editor tab
+        store.openTab(file.path, file.content);
+
+        // 3. Open in tabsStore so the tab bar renders it
+        tabsStore.openTab(options.projectId, file.path);
+
+        // 4. Add to file tree
+        const segments = file.path.split('/');
+        const fileName = segments[segments.length - 1];
+        const parentPath = segments.slice(0, -1).join('/') || '/';
+        try {
+          store.addFileNode(parentPath, {
+            id: `orch-${file.path}-${Date.now()}`,
+            name: fileName,
+            type: 'file',
+            path: file.path,
+          });
+        } catch {
+          // Parent may not exist yet — file:created event triggers tree refresh
         }
 
-        model.setValue(file.content);
-        console.log(`[AIOrchestrator] Applied: ${file.path}`);
-        
+        // 5. Emit event so any other listeners refresh the file tree
+        ideEventBus.emit('file:created', { path: file.path });
+
+        // 6. Attempt backend persistence (upsert — works for new AND existing files)
+        let saved = false;
+        try {
+          const { fileSystemClient } = await import('../api/fileSystemClient');
+          await fileSystemClient.applyAiPatches(options.projectId, [
+            { path: file.path, content: file.content },
+          ]);
+          saved = true;
+        } catch {
+          // Backend unavailable — file lives only in-memory for this session
+        }
+
+        if (saved) {
+          persisted.push(file.path);
+        } else {
+          inMemoryOnly.push(file.path);
+          console.warn(`[AIOrchestrator] In-memory only (backend offline): ${file.path}`);
+        }
+
+        console.log(`[AIOrchestrator] Applied: ${file.path} (persisted=${saved})`);
+
       } catch (error) {
         console.error(`[AIOrchestrator] Failed to apply ${file.path}:`, error);
+        inMemoryOnly.push(file.path);
       }
     }
+
+    return { persisted, inMemoryOnly };
   }
 
   /**

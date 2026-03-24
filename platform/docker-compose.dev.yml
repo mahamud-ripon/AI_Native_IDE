@@ -3,59 +3,23 @@ services:
   # INFRASTRUCTURE
   # ============================================
 
-  postgres:
-    image: pgvector/pgvector:pg15
-    container_name: ai-native-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ainative}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ainative_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-ainative_ide}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ainative} -d ${POSTGRES_DB:-ainative_ide}" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: ai-native-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: ai-native-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: ai-native-kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  # services:
+  # services:
+  #   postgres:
+  #     image: pgvector/pgvector:pg15
+  #     # ... rest of postgres config
+    
+  #   redis:
+  #     image: redis:7-alpine
+  #     # ... rest of redis config
+    
+  #   zookeeper:
+  #     image: confluentinc/cp-zookeeper:7.5.0
+  #     # ... rest of zookeeper config
+    
+  #   kafka:
+  #     image: confluentinc/cp-kafka:7.5.0
+  #     # ... rest of kafka config
 
   minio:
     image: minio/minio
@@ -142,10 +106,10 @@ services:
       - node_modules:/app/node_modules
     command: pnpm --filter @ai-ide/auth-service dev
     ports:
-      - "8002:8002"
+      - "3100:3100"
     env_file: .env.docker
     environment:
-      PORT: 8002
+      PORT: 3100
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -162,10 +126,10 @@ services:
       - node_modules:/app/node_modules
     command: pnpm --filter @ai-ide/project-service dev
     ports:
-      - "8003:8003"
+      - "8002:8002"
     env_file: .env.docker
     environment:
-      PORT: 8003
+      PORT: 8002
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -177,7 +141,11 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: ai-native-execution-service
-    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    security_opt:
+      - seccomp:unconfined
     volumes:
       - .:/app
       - node_modules:/app/node_modules
@@ -201,10 +169,10 @@ services:
       - node_modules:/app/node_modules
     command: pnpm --filter @ai-ide/ai-service dev
     ports:
-      - "8005:8005"
+      - "8003:8003"
     env_file: .env.docker
     environment:
-      PORT: 8005
+      PORT: 8003
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -219,10 +187,10 @@ services:
       - node_modules:/app/node_modules
     command: pnpm --filter @ai-ide/collab-service dev
     ports:
-      - "8008:8008"
+      - "8005:8005"
     env_file: .env.docker
     environment:
-      PORT: 8008
+      PORT: 8005
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -258,7 +226,7 @@ services:
     container_name: ai-native-python-agents
     restart: unless-stopped
     ports:
-      - "9000:9000"
+      - "9002:9000"
     env_file:
       - ./ai-agents/.env
       - .env
@@ -288,11 +256,11 @@ services:
       - node_modules:/app/node_modules
     command: pnpm --filter ide-client dev -- --host
     ports:
-      - "3000:5173"
+      - "5173:5173"
     env_file: .env.docker
     environment:
       VITE_API_URL: http://localhost:8000
-      VITE_WS_URL: ws://localhost:8001
+      VITE_WS_URL: ws://localhost:8012
     depends_on:
       setup:
         condition: service_completed_successfully

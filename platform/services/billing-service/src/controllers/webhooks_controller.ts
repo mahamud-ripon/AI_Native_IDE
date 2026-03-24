@@ -88,6 +88,14 @@ export const WebhookController = {
           const invoice = event.data.object as any;
           const subscriptionId = invoice.subscription as string;
           
+          // Update subscription status to past_due
+          await SubscriptionService.handleWebhookUpdate(subscriptionId, {
+            status: 'past_due' as SubStatus,
+            plan: undefined, // Keep existing plan
+            currentPeriodStart: undefined,
+            currentPeriodEnd: undefined
+          });
+          
           await KafkaPublisher.publish('payment.failed', {
             stripeSubscriptionId: subscriptionId,
             customerId: invoice.customer,

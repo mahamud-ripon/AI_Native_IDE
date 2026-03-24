@@ -42,7 +42,7 @@ export interface WorkflowEventMessage {
   timestamp: number;
 }
 
-export type RealtimeMessage = AgentStreamMessage | WorkflowEventMessage;
+export type RealtimeMessage = AgentStreamMessage | WorkflowEventMessage | any; // allow any for ExecutionEvent
 
 // Message handler type
 export type MessageHandler = (connectionId: string, message: RealtimeMessage) => Promise<void>;
@@ -58,25 +58,39 @@ export async function initRedisStreamBridge(): Promise<void> {
     return;
   }
 
-  // Create publisher client
-  publisher = new Redis(config.redisUrl);
-  console.log('[RedisStreamBridge] Publisher connected');
+  try {
+    // Create publisher client
+    publisher = new Redis(config.redisUrl);
+    publisher.on('error', (err) => {
+      console.error('[RedisStreamBridge] Publisher error:', err.message);
+    });
+    await publisher.ping();
+    console.log('[RedisStreamBridge] Publisher connected');
 
-  // Create subscriber client
-  subscriber = new Redis(config.redisUrl);
-  console.log('[RedisStreamBridge] Subscriber connected');
+    // Create subscriber client
+    subscriber = new Redis(config.redisUrl);
+    subscriber.on('error', (err) => {
+      console.error('[RedisStreamBridge] Subscriber error:', err.message);
+    });
+    await subscriber.ping();
+    console.log('[RedisStreamBridge] Subscriber connected');
 
-  // Set up message handler
-  subscriber.on('message', async (channel: string, message: string) => {
-    try {
-      const parsedMessage = JSON.parse(message) as RealtimeMessage;
-      await handleMessage(channel, parsedMessage);
-    } catch (error) {
-      console.error('[RedisStreamBridge] Error handling message:', error);
-    }
-  });
+    // Set up message handler
+    subscriber.on('message', async (channel: string, message: string) => {
+      try {
+        const parsedMessage = JSON.parse(message) as RealtimeMessage;
+        await handleMessage(channel, parsedMessage);
+      } catch (error) {
+        console.error('[RedisStreamBridge] Error handling message:', error);
+      }
+    });
 
-  console.log('[RedisStreamBridge] Initialized');
+    console.log('[RedisStreamBridge] Initialized');
+  } catch (error) {
+    console.warn('[RedisStreamBridge] Failed to connect to Redis, running without pub/sub:', error);
+    publisher = null;
+    subscriber = null;
+  }
 }
 
 /**
@@ -102,7 +116,8 @@ export async function shutdownRedisStreamBridge(): Promise<void> {
  */
 export async function publishAgentStream(message: Omit<AgentStreamMessage, 'timestamp'>): Promise<void> {
   if (!publisher) {
-    throw new Error('RedisStreamBridge not initialized');
+    console.warn('[RedisStreamBridge] Cannot publish agent stream - Redis not connected');
+    return;
   }
 
   const fullMessage: AgentStreamMessage = {
@@ -123,7 +138,8 @@ export async function publishAgentStream(message: Omit<AgentStreamMessage, 'time
  */
 export async function publishWorkflowEvent(message: Omit<WorkflowEventMessage, 'timestamp'>): Promise<void> {
   if (!publisher) {
-    throw new Error('RedisStreamBridge not initialized');
+    console.warn('[RedisStreamBridge] Cannot publish workflow event - Redis not connected');
+    return;
   }
 
   const fullMessage: WorkflowEventMessage = {
@@ -147,7 +163,8 @@ export async function subscribeToChannel(
   handler: MessageHandler
 ): Promise<void> {
   if (!subscriber) {
-    throw new Error('RedisStreamBridge not initialized');
+    console.warn(`[RedisStreamBridge] Cannot subscribe to ${channel} - Redis not connected`);
+    return;
   }
 
   await subscriber.subscribe(channel);
@@ -199,6 +216,20 @@ export async function subscribeToAgentStreams(handler: MessageHandler): Promise<
  */
 export async function subscribeToWorkflowEvents(handler: MessageHandler): Promise<void> {
   await subscribeToChannel(WORKFLOW_EVENT_CHANNEL, handler);
+}
+
+/**
+ * Subscribe to task execution events
+ */
+export async function subscribeToTaskExecution(taskId: string, handler: MessageHandler): Promise<void> {
+  await subscribeToChannel(`execution:task:${taskId}`, handler);
+}
+
+/**
+ * Subscribe to workspace execution events
+ */
+export async function subscribeToWorkspaceExecution(workspaceId: string, handler: MessageHandler): Promise<void> {
+  await subscribeToChannel(`execution:workspace:${workspaceId}`, handler);
 }
 
 /**

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bolt.new Clone</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">
+                    <i class="ph-fill ph-lightning"></i>
+                </div>
+                <div class="breadcrumbs">
+                    <div class="avatar">R</div>
+                    <span class="separator">/</span>
+                    <span class="project-name">Todo Application</span>
+                    <i class="ph ph-lock-key"></i>
+                </div>
+            </div>
+            <div class="header-center">
+                <div class="view-toggles">
+                    <button class="toggle-btn" title="Preview Mode"><i class="ph ph-eye"></i></button>
+                    <button class="toggle-btn active" title="Coding Mode"><i class="ph ph-code"></i></button>
+                    <button class="toggle-btn" title="Settings Mode"><i class="ph ph-gear"></i></button>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="icon-btn"><i class="ph ph-github-logo"></i></button>
+                <button class="btn btn-secondary">Share</button>
+                <button class="btn btn-primary">Publish</button>
+                <div class="avatar-small">R</div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="workspace">
+            <!-- Left Sidebar (Chat) -->
+            <aside class="sidebar-left">
+                <div class="chat-history">
+                    <div class="chat-message">
+                        <p><strong>Database:</strong> Set up a Bolt Database with a todos table that includes title, completion status, and timestamps. Row Level Security is enabled with public access policies.</p>
+                        <p><strong>Features:</strong></p>
+                        <ul>
+                            <li>Add new todos with a clean input form</li>
+                            <li>Mark todos as complete/incomplete with checkbox toggles</li>
+                            <li>Delete todos with a hover-to-reveal delete button</li>
+                            <li>Real-time progress tracker showing completion percentage</li>
+                            <li>Responsive design that works on all devices</li>
+                        </ul>
+                        <p><strong>Design:</strong> The app features a modern, clean aesthetic with:</p>
+                        <ul>
+                            <li>Soft gradient background (slate tones)</li>
+                            <li>Glass-morphism effects on cards</li>
+                            <li>Smooth animations and transitions</li>
+                            <li>Emerald green accent color for actions</li>
+                            <li>Clear visual hierarchy and spacing</li>
+                        </ul>
+                        <p>The application is fully functional and connected to your Bolt Database. You can start adding todos right away!</p>
+                        
+                        <div class="action-card">
+                            <div class="action-card-content">
+                                <h4>Build Supabase Todo Application</h4>
+                                <span>Version 1 at Mar 11 11:02 PM</span>
+                            </div>
+                            <i class="ph ph-bookmark"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <textarea placeholder="How can Bolt help you today? (or /command)"></textarea>
+                        <div class="chat-input-actions">
+                            <div class="actions-left">
+                                <button class="icon-btn"><i class="ph ph-plus"></i></button>
+                                <button class="model-selector"><i class="ph ph-sparkle"></i> Sonnet 4.5 <i class="ph ph-caret-up-down"></i></button>
+                            </div>
+                            <div class="actions-right">
+                                <button class="text-btn"><i class="ph ph-cursor"></i> Select</button>
+                                <button class="text-btn"><i class="ph ph-lightbulb"></i> Plan</button>
+                                <button class="send-btn"><i class="ph ph-arrow-up"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <main class="main-content">
+                <!-- Editor Area -->
+                <div class="editor-container">
+                    <!-- File Explorer -->
+                    <div class="file-explorer">
+                        <div class="panel-header">
+                            <div class="tabs">
+                                <button class="tab active"><i class="ph ph-files"></i> Files</button>
+                                <button class="tab"><i class="ph ph-magnifying-glass"></i> Search</button>
+                            </div>
+                        </div>
+                        <div class="file-tree">
+                            <div class="tree-item folder"><i class="ph ph-caret-right"></i> .bolt</div>
+                            <div class="tree-item folder open"><i class="ph ph-caret-down"></i> src</div>
+                            <div class="tree-item folder"><i class="ph ph-caret-right"></i> components</div>
+                            <div class="tree-item folder"><i class="ph ph-caret-right"></i> lib</div>
+                            <div class="tree-item file active"><i class="ph-fill ph-file-code" style="color: #3b82f6;"></i> App.tsx</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-css" style="color: #0ea5e9;"></i> index.css</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #3b82f6;"></i> main.tsx</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #3b82f6;"></i> vite-env.d.ts</div>
+                            <div class="tree-item folder"><i class="ph ph-caret-right"></i> supabase</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file" style="color: #888;"></i> .env</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file" style="color: #888;"></i> .gitignore</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> eslint.config.js</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-html" style="color: #e34f26;"></i> index.html</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> package-lock.json</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> package.json</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> postcss.config.js</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> tailwind.config.js</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> tsconfig.app.json</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> tsconfig.json</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #facc15;"></i> tsconfig.node.json</div>
+                            <div class="tree-item file"><i class="ph-fill ph-file-code" style="color: #3b82f6;"></i> vite.config.ts</div>
+                        </div>
+                    </div>
+
+                    <!-- Code Editor -->
+                    <div class="code-editor">
+                        <div class="editor-header">
+                            <div class="editor-tabs">
+                                <div class="editor-tab active">
+                                    <i class="ph-fill ph-file-code" style="color: #3b82f6;"></i>
+                                    <span>App.tsx</span>
+                                    <button class="close-tab"><i class="ph ph-x"></i></button>
+                                </div>
+                                <div class="editor-tab">
+                                    <i class="ph-fill ph-file-css" style="color: #0ea5e9;"></i>
+                                    <span>index.css</span>
+                                    <button class="close-tab"><i class="ph ph-x"></i></button>
+                                </div>
+                            </div>
+                            <div class="editor-actions">
+                                <button class="icon-btn"><i class="ph ph-play"></i></button>
+                                <button class="icon-btn"><i class="ph ph-dots-three"></i></button>
+                            </div>
+                        </div>
+                        <div class="editor-breadcrumbs">
+                            <span>src</span> <i class="ph ph-caret-right"></i> <span>App.tsx</span>
+                        </div>
+                        <div class="editor-content">
+                            <div class="line-numbers">
+                                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span><span>31</span><span>32</span><span>33</span><span>34</span>
+                            </div>
+                            <div class="code-lines">
+                                <pre><code><span class="keyword">import</span> { <span class="variable">useEffect</span>, <span class="variable">useState</span> } <span class="keyword">from</span> <span class="string">'react'</span>;
+<span class="keyword">import</span> { <span class="variable">CheckSquare</span> } <span class="keyword">from</span> <span class="string">'lucide-react'</span>;
+<span class="keyword">import</span> { <span class="variable">supabase</span>, <span class="keyword">type</span> <span class="type">Todo</span> } <span class="keyword">from</span> <span class="string">'./lib/supabase'</span>;
+<span class="keyword">import</span> { <span class="variable">AddTodo</span> } <span class="keyword">from</span> <span class="string">'./components/AddTodo'</span>;
+<span class="keyword">import</span> { <span class="variable">TodoList</span> } <span class="keyword">from</span> <span class="string">'./components/TodoList'</span>;
+
+<span class="keyword">function</span> <span class="function">App</span>() {
+  <span class="keyword">const</span> [<span class="variable">todos</span>, <span class="variable">setTodos</span>] = <span class="function">useState</span><<span class="type">Todo</span>[]>([]);
+  <span class="keyword">const</span> [<span class="variable">loading</span>, <span class="variable">setLoading</span>] = <span class="function">useState</span>(<span class="boolean">true</span>);
+
+  <span class="function">useEffect</span>(() => {
+    <span class="function">fetchTodos</span>();
+  }, []);
+
+  <span class="keyword">const</span> <span class="function">fetchTodos</span> = <span class="keyword">async</span> () => {
+    <span class="keyword">try</span> {
+      <span class="keyword">const</span> { <span class="variable">data</span>, <span class="variable">error</span> } = <span class="keyword">await</span> <span class="variable">supabase</span>
+        .<span class="function">from</span>(<span class="string">'todos'</span>)
+        .<span class="function">select</span>(<span class="string">'*'</span>)
+        .<span class="function">order</span>(<span class="string">'created_at'</span>, { <span class="variable">ascending</span>: <span class="boolean">false</span> });
+
+      <span class="keyword">if</span> (<span class="variable">error</span>) <span class="keyword">throw</span> <span class="variable">error</span>;
+      <span class="function">setTodos</span>(<span class="variable">data</span> || []);
+    } <span class="keyword">catch</span> (<span class="variable">error</span>) {
+      <span class="variable">console</span>.<span class="function">error</span>(<span class="string">'Error fetching todos:'</span>, <span class="variable">error</span>);
+    } <span class="keyword">finally</span> {
+      <span class="function">setLoading</span>(<span class="boolean">false</span>);
+    }
+  };
+
+  <span class="keyword">const</span> <span class="function">addTodo</span> = <span class="keyword">async</span> (<span class="variable">title</span>: <span class="type">string</span>) => {
+    <span class="keyword">try</span> {
+      <span class="keyword">const</span> { <span class="variable">data</span>, <span class="variable">error</span> } = <span class="keyword">await</span> <span class="variable">supabase</span>
+        .<span class="function">from</span>(<span class="string">'todos'</span>)</code></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Preview Window -->
+                    <div class="preview-window" id="preview-window">
+                        <div class="preview-header">
+                            <div class="preview-address-bar">
+                                <button class="icon-btn"><i class="ph ph-arrow-left"></i></button>
+                                <button class="icon-btn"><i class="ph ph-arrow-right"></i></button>
+                                <button class="icon-btn"><i class="ph ph-arrow-clockwise"></i></button>
+                                <div class="url-input">
+                                    <i class="ph ph-lock-key"></i>
+                                    <span>localhost:5173</span>
+                                </div>
+                                <button class="icon-btn"><i class="ph ph-arrow-square-out"></i></button>
+                            </div>
+                        </div>
+                        <div class="preview-content">
+                            <div class="preview-placeholder">
+                                <h3>Todo Application</h3>
+                                <p>Preview running on port 5173</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings Window -->
+                    <div class="settings-window" id="settings-window">
+                        <div class="settings-header">
+                            <div class="settings-title">
+                                <i class="ph ph-gear"></i>
+                                <h2>Project Settings</h2>
+                            </div>
+                        </div>
+                        <div class="settings-content">
+                            <div class="settings-section">
+                                <h3>General</h3>
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label>Project Name</label>
+                                        <span>Todo Application</span>
+                                    </div>
+                                    <input type="text" value="Todo Application" class="setting-input" />
+                                </div>
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label>Description</label>
+                                        <span>A beautiful todo application built with React and Supabase</span>
+                                    </div>
+                                    <input type="text" value="A beautiful todo application built with React and Supabase" class="setting-input" />
+                                </div>
+                            </div>
+                            
+                            <div class="settings-section">
+                                <h3>Environment</h3>
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label>Node Version</label>
+                                        <span>18.19.0</span>
+                                    </div>
+                                    <select class="setting-select">
+                                        <option>18.19.0</option>
+                                        <option>20.10.0</option>
+                                        <option>21.6.0</option>
+                                    </select>
+                                </div>
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label>Package Manager</label>
+                                        <span>npm</span>
+                                    </div>
+                                    <select class="setting-select">
+                                        <option>npm</option>
+                                        <option>yarn</option>
+                                        <option>pnpm</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="settings-section">
+                                <h3>Build & Deploy</h3>
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label>Build Command</label>
+                                        <span>Command to build the project</span>
+                                    </div>
+                                    <input type="text" value="npm run build" class="setting-input" />
+                                </div>
+                                <div class="setting-item">
+                                    <div class="setting-info">
+                                        <label>Output Directory</label>
+                                        <span>Directory to store build output</span>
+                                    </div>
+                                    <input type="text" value="dist" class="setting-input" />
+                                </div>
+                            </div>
+
+                            <div class="settings-section">
+                                <h3>Advanced</h3>
+                                <div class="setting-item toggle">
+                                    <div class="setting-info">
+                                        <label>TypeScript</label>
+                                        <span>Enable TypeScript support</span>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" checked />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="setting-item toggle">
+                                    <div class="setting-info">
+                                        <label>ESLint</label>
+                                        <span>Enable code linting</span>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" checked />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="setting-item toggle">
+                                    <div class="setting-info">
+                                        <label>Auto Save</label>
+                                        <span>Automatically save changes</span>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" checked />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="btn btn-secondary">Reset to Defaults</button>
+                                <button class="btn btn-primary">Save Changes</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Panel -->
+                <div class="bottom-panel">
+                    <div class="panel-header">
+                        <div class="bottom-tabs-container">
+                            <div class="tabs">
+                                <button class="tab"><i class="ph ph-lightning"></i> Bolt</button>
+                                <button class="tab"><i class="ph ph-rocket"></i> Publish Output</button>
+                                <button class="tab active"><i class="ph ph-terminal-window"></i> Terminal</button>
+                            </div>
+                            <button class="icon-btn"><i class="ph ph-plus"></i></button>
+                        </div>
+                        <div class="panel-actions">
+                            <button class="icon-btn"><i class="ph ph-caret-down"></i></button>
+                        </div>
+                    </div>
+                    <div class="terminal-content">
+                        <div class="terminal-line"><span class="prompt">~/project</span></div>
+                        <div class="terminal-line"><span class="prompt-arrow" style="color: #e06c75; margin-right: 8px;">&gt;</span><span class="cursor"></span></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // View Mode Management
+        const fileExplorer = document.querySelector('.file-explorer');
+        const codeEditor = document.querySelector('.code-editor');
+        const previewWindow = document.getElementById('preview-window');
+        const settingsWindow = document.getElementById('settings-window');
+        const viewToggles = document.querySelectorAll('.view-toggles .toggle-btn');
+        
+        // Current state
+        let currentMode = 'coding';
+
+        // Animation helper - forces reflow to restart animations
+        function forceReflow(element) {
+            void element.offsetWidth;
+        }
+
+        function setViewMode(mode) {
+            if (currentMode === mode) return; // No change needed
+            
+            // Update current mode
+            currentMode = mode;
+            
+            // Remove active class from all toggles
+            viewToggles.forEach(btn => btn.classList.remove('active'));
+            
+            // Hide all panels first with fade out effect
+            fileExplorer.style.opacity = '0';
+            codeEditor.style.opacity = '0';
+            previewWindow.style.opacity = '0';
+            settingsWindow.style.opacity = '0';
+            
+            // After brief delay, show the correct panels
+            setTimeout(() => {
+                // Reset all panels display
+                fileExplorer.style.display = 'none';
+                codeEditor.style.display = 'none';
+                previewWindow.style.display = 'none';
+                settingsWindow.style.display = 'none';
+                
+                // Remove animation classes to allow re-triggering
+                fileExplorer.classList.remove('slideIn');
+                codeEditor.classList.remove('fadeIn');
+                previewWindow.classList.remove('fadeIn');
+                settingsWindow.classList.remove('fadeIn');
+                
+                // Force reflow
+                forceReflow(fileExplorer);
+                forceReflow(codeEditor);
+                forceReflow(previewWindow);
+                forceReflow(settingsWindow);
+                
+                // Show panels based on mode
+                switch(mode) {
+                    case 'coding':
+                        // Show coding view: file explorer + code editor
+                        fileExplorer.style.display = 'flex';
+                        codeEditor.style.display = 'flex';
+                        fileExplorer.classList.add('slideIn');
+                        codeEditor.classList.add('fadeIn');
+                        viewToggles[1].classList.add('active');
+                        break;
+                    case 'preview':
+                        // Show preview view: file explorer + preview
+                        fileExplorer.style.display = 'flex';
+                        previewWindow.style.display = 'flex';
+                        fileExplorer.classList.add('slideIn');
+                        previewWindow.classList.add('fadeIn');
+                        viewToggles[0].classList.add('active');
+                        break;
+                    case 'settings':
+                        // Show settings view: full settings panel
+                        settingsWindow.style.display = 'flex';
+                        settingsWindow.classList.add('fadeIn');
+                        viewToggles[2].classList.add('active');
+                        break;
+                }
+                
+                // Fade in the visible panels
+                setTimeout(() => {
+                    fileExplorer.style.opacity = '1';
+                    codeEditor.style.opacity = '1';
+                    previewWindow.style.opacity = '1';
+                    settingsWindow.style.opacity = '1';
+                }, 50);
+                
+            }, 200);
+        }
+
+        // Add click listeners to view toggles
+        viewToggles[0].addEventListener('click', () => setViewMode('preview'));
+        viewToggles[1].addEventListener('click', () => setViewMode('coding'));
+        viewToggles[2].addEventListener('click', () => setViewMode('settings'));
+
+        // Add transition styles dynamically
+        document.querySelectorAll('.file-explorer, .code-editor, .preview-window, .settings-window').forEach(el => {
+            el.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+        });
+
+        // Initialize with coding mode
+        setViewMode('coding');
+
+        // File tree interaction
+        const treeItems = document.querySelectorAll('.tree-item');
+        treeItems.forEach(item => {
+            item.addEventListener('click', function() {
+                // Remove active from all items
+                treeItems.forEach(i => i.classList.remove('active'));
+                // Add active to clicked item
+                this.classList.add('active');
+            });
+        });
+
+        // Editor tab interaction
+        const editorTabs = document.querySelectorAll('.editor-tab');
+        editorTabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                editorTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // Close tab interaction
+        const closeTabs = document.querySelectorAll('.close-tab');
+        closeTabs.forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const tab = this.parentElement;
+                tab.remove();
+            });
+        });
+
+        // Settings toggle switches
+        const toggleSwitches = document.querySelectorAll('.switch input');
+        toggleSwitches.forEach(toggle => {
+            toggle.addEventListener('change', function() {
+                console.log('Toggle changed:', this.checked);
+            });
+        });
+
+        // Settings buttons
+        const saveBtn = document.querySelector('.settings-actions .btn-primary');
+        const resetBtn = document.querySelector('.settings-actions .btn-secondary');
+        
+        if (saveBtn) {
+            saveBtn.addEventListener('click', function() {
+                this.textContent = 'Saved!';
+                setTimeout(() => {
+                    this.textContent = 'Save Changes';
+                }, 1500);
+            });
+        }
+
+        // Chat input interaction
+        const chatInput = document.querySelector('.chat-input-wrapper textarea');
+        const sendBtn = document.querySelector('.send-btn');
+        
+        if (sendBtn && chatInput) {
+            sendBtn.addEventListener('click', function() {
+                if (chatInput.value.trim()) {
+                    // Simulate sending message
+                    chatInput.value = '';
+                    chatInput.style.height = '40px';
+                }
+            });
+            
+            chatInput.addEventListener('input', function() {
+                // Auto-resize textarea
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+            
+            chatInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendBtn.click();
+                }
+            });
+        }
+
+        // Action card click
+        const actionCards = document.querySelectorAll('.action-card');
+        actionCards.forEach(card => {
+            card.addEventListener('click', function() {
+                // Visual feedback
+                this.style.transform = 'scale(0.98)';
+                setTimeout(() => {
+                    this.style.transform = '';
+                }, 150);
+            });
+        });
+
+        // Preview window buttons
+        const previewRefresh = document.querySelector('.preview-header .icon-btn:nth-child(3)');
+        if (previewRefresh) {
+            previewRefresh.addEventListener('click', function() {
+                // Add rotation animation
+                const icon = this.querySelector('i');
+                icon.classList.add('ph-spin');
+                setTimeout(() => {
+                    icon.classList.remove('ph-spin');
+                }, 1000);
+            });
+        }
+
+        // Bottom panel tabs
+        const bottomTabs = document.querySelectorAll('.bottom-panel .tab');
+        bottomTabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                bottomTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>

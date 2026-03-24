@@ -114,7 +114,7 @@ docker-compose ps
 
 ```powershell
 # Find process using port
-netstat -ano | findstr :3000
+netstat -ano | findstr :8000
 
 # Kill process
 taskkill /PID <PID> /F
@@ -127,9 +127,9 @@ taskkill /PID <PID> /F
 | Service | Port | URL |
 |---------|------|-----|
 | IDE Frontend | 5173 | http://localhost:5173 |
-| API Gateway | 3000 | http://localhost:3000 |
+| API Gateway | 8000 | http://localhost:8000 |
 | AI Service | 8003 | http://localhost:8003 |
-| AI Agents (Python) | 8000 | http://localhost:8000 |
+| AI Agents (Python) | 9000 | http://localhost:9000 |
 | WebSocket | 8012 | ws://localhost:8012 |
 
 ---

@@ -1,4 +1,6 @@
-import 'dotenv/config';
+// Validate environment variables at startup
+import '@workspace/config/env';
+
 import { fastify, registerPlugins } from './app.js';
 import { config } from './config.js';
 import { redis, registerMeteringScript } from './lib/redis.js';

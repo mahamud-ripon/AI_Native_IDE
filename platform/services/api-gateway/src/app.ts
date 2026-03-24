@@ -4,6 +4,12 @@ import fastifyCors from '@fastify/cors';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyHttpProxy from '@fastify/http-proxy';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Load .env from root directory
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 import { requestTracerMiddleware, logRequestResolution } from './logging/request_tracer';
 import { idempotencyMiddleware, resolveIdempotency } from './middleware/idempotency';
@@ -12,7 +18,6 @@ import { edgeAuthMiddleware } from './middleware/edge_auth';
 import { globalRateLimiterMiddleware } from './middleware/global_rate_limiter';
 import { proxyRouter } from './routes/proxy_router';
 
-dotenv.config();
 
 export const buildApp = async (): Promise<FastifyInstance> => {
   const app = Fastify({
@@ -35,14 +40,14 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(fastifyCors, {
     origin: process.env.NODE_ENV === 'production' 
       ? ['https://platform.io', /.*\.platform\.io$/] 
-      : ['http://localhost:3000', true],
+      : ['http://localhost:5173', true],
     credentials: true,
     allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Trace-Id'],
   });
 
   // 3. Cookie parsing
   await app.register(fastifyCookie, {
-    secret: process.env.COOKIE_SECRET || 'fallback-super-secret',
+    secret: process.env.COOKIE_SECRET || (() => { throw new Error('Missing required environment variable: COOKIE_SECRET'); })(),
     hook: 'onRequest',
   });
 

@@ -2,8 +2,8 @@
 
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
-> **Service:** analytics-service (Port 8010)  
-> **Tech Stack:** Node.js + Express + Prisma + Redis + Kafka
+> **Service:** analytics-service (Port 8011)  
+> **Tech Stack:** Node.js + Fastify + Prisma + Redis + Redpanda (Kafka-compatible)
 
 ---
 
@@ -21,7 +21,7 @@ The Analytics Service provides platform-wide usage analytics (DAU, MAU, MRR, chu
 mkdir -p analytics-service/src/{controllers,services,workers,events,lib,config,middleware}
 cd analytics-service
 npm init -y
-npm install express @prisma/client ioredis kafkajs zod dotenv cors helmet
+npm install fastify @fastify/cors @fastify/helmet @prisma/client ioredis kafkajs zod dotenv
 npm install -D typescript @types/node ts-node prisma
 npx tsc --init
 ```
@@ -39,20 +39,20 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "@prisma/client": "^5.8.0",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
+    "@prisma/client": "^5.10.0",
     "ioredis": "^5.3.2",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
-    "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0"
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -497,7 +497,7 @@ export const RetentionAnalyzer = {
 ### 5.1 Overview Controller (src/controllers/overview_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { MetricsAggregator } from '../services/metrics_aggregator';
 import { RevenueCalculator } from '../services/revenue_calculator';
 
@@ -540,7 +540,7 @@ export const OverviewController = {
 ### 5.2 Usage Controller (src/controllers/usage_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { MetricsAggregator } from '../services/metrics_aggregator';
 
 export const UsageController = {
@@ -576,7 +576,7 @@ export const UsageController = {
 ### 5.3 Revenue Controller (src/controllers/revenue_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { RevenueCalculator } from '../services/revenue_calculator';
 
 export const RevenueController = {
@@ -610,7 +610,7 @@ export const RevenueController = {
 ### 5.4 Feature Flag Controller (src/controllers/feature_flag_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { FeatureFlagEngine } from '../services/feature_flag_engine';
 import { z } from 'zod';
 
@@ -900,9 +900,9 @@ model AnalyticsSnapshot {
 ### 9.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { adminMiddleware } from './middleware/admin';
 import { OverviewController } from './controllers/overview_controller';
@@ -910,39 +910,29 @@ import { UsageController } from './controllers/usage_controller';
 import { RevenueController } from './controllers/revenue_controller';
 import { FeatureFlagController } from './controllers/feature_flag_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'analytics-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'analytics-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Admin analytics endpoints
-app.get('/api/v1/admin/analytics/overview', adminMiddleware, OverviewController.getOverview);
-app.get('/api/v1/admin/analytics/usage', adminMiddleware, UsageController.getUsage);
-app.get('/api/v1/admin/analytics/revenue', adminMiddleware, RevenueController.getRevenue);
+app.get('/api/v1/admin/analytics/overview', { preHandler: adminMiddleware }, OverviewController.getOverview);
+app.get('/api/v1/admin/analytics/usage', { preHandler: adminMiddleware }, UsageController.getUsage);
+app.get('/api/v1/admin/analytics/revenue', { preHandler: adminMiddleware }, RevenueController.getRevenue);
 
 // Feature flags
-app.get('/api/v1/admin/feature-flags', adminMiddleware, FeatureFlagController.listFlags);
-app.post('/api/v1/admin/feature-flags', adminMiddleware, FeatureFlagController.createFlag);
-app.patch('/api/v1/admin/feature-flags/:id', adminMiddleware, FeatureFlagController.updateFlag);
+app.get('/api/v1/admin/feature-flags', { preHandler: adminMiddleware }, FeatureFlagController.listFlags);
+app.post('/api/v1/admin/feature-flags', { preHandler: adminMiddleware }, FeatureFlagController.createFlag);
+app.patch('/api/v1/admin/feature-flags/:id', { preHandler: adminMiddleware }, FeatureFlagController.updateFlag);
 
 // Internal feature evaluation
 app.get('/api/v1/features/evaluate', FeatureFlagController.evaluateFlag);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
 
 export { app };
 ```
@@ -995,22 +985,22 @@ main().catch(console.error);
 npm run dev
 
 # Test health
-curl http://localhost:8010/api/v1/health
+curl http://localhost:8011/api/v1/health
 
 # Test analytics overview (admin)
-curl http://localhost:8010/api/v1/admin/analytics/overview \
+curl http://localhost:8011/api/v1/admin/analytics/overview \
   -H "Authorization: Bearer <admin-token>"
 
 # Test usage metrics
-curl "http://localhost:8010/api/v1/admin/analytics/usage?period=7d" \
+curl "http://localhost:8011/api/v1/admin/analytics/usage?period=7d" \
   -H "Authorization: Bearer <admin-token>"
 
 # Test feature flags
-curl http://localhost:8010/api/v1/admin/feature-flags \
+curl http://localhost:8011/api/v1/admin/feature-flags \
   -H "Authorization: Bearer <admin-token>"
 
 # Test feature evaluation (internal)
-curl "http://localhost:8010/api/v1/features/evaluate?user_id=uuid&flag=ai_code_review"
+curl "http://localhost:8011/api/v1/features/evaluate?user_id=uuid&flag=ai_code_review"
 ```
 
 ---

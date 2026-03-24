@@ -5,9 +5,9 @@ export const CreateProjectSchema = z.object({
     .string()
     .min(3, 'Name must be at least 3 characters')
     .max(50, 'Name must be at most 50 characters')
-    .regex(/^[a-zA-Z0-9-]+$/, 'Name can only contain letters, numbers, and dashes'),
+    .regex(/^[a-zA-Z0-9-\s]+$/, 'Name can only contain letters, numbers, dashes, and spaces'),
   description: z.string().max(500).optional(),
-  template: z.enum(['nextjs', 'fastapi', 'blank', 'react', 'vue', 'express', 'python', 'node', 'go', 'rust']).optional(),
+  template: z.string().optional(),
   visibility: z.enum(['private', 'public', 'org']).default('private'),
   orgId: z.string().uuid().nullable().optional(),
 });

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -31,9 +32,12 @@ class CostManager:
     """
 
     TIER_COSTS = {
-        "tier1": {"input": 15.0, "output": 75.0, "cached": 15.0 * CACHED_TOKEN_COST_RATIO},
+        # tier1: claude-3-5-sonnet for complex planning (correct pricing)
+        "tier1": {"input": 3.0, "output": 15.0, "cached": 3.0 * CACHED_TOKEN_COST_RATIO},
+        # tier2: claude-3-haiku for code generation (Haiku pricing, not Sonnet)
         "tier2": {"input": 0.25, "output": 1.25, "cached": 0.25 * CACHED_TOKEN_COST_RATIO},
-        "tier3": {"input": 0.10, "output": 0.40, "cached": 0.10 * CACHED_TOKEN_COST_RATIO},
+        # tier3: llama-3-70b via Groq for simple tasks
+        "tier3": {"input": 0.59, "output": 0.79, "cached": 0.59 * CACHED_TOKEN_COST_RATIO},
     }
 
     # Map tiers to task types for gateway routing
@@ -128,6 +132,62 @@ class CostManager:
             return self._tier3
 
         raise ValueError(f"Unknown tier: {tier}")
+
+    async def stream(
+        self,
+        tier: LLM_TIER,
+        messages: List[Dict[str, Any]],
+        on_token: Optional[callable] = None,
+    ) -> tuple[str, Dict[str, Any]]:
+        """Stream LLM response token by token.
+        
+        Args:
+            tier: LLM tier to use
+            messages: List of message dicts with 'role' and 'content'
+            on_token: Optional callback for each token (token: str) -> None
+            
+        Returns:
+            Tuple of (full_response: str, metadata: dict)
+        """
+        llm = self.get_llm(tier)
+        
+        # Convert messages to LangChain format
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        
+        lc_messages = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            
+            if role == "system":
+                lc_messages.append(SystemMessage(content=content))
+            elif role == "user":
+                lc_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(AIMessage(content=content))
+        
+        # Collect tokens
+        full_response = ""
+        metadata = {
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "model": "",
+            "provider": "",
+        }
+        
+        # Stream the response
+        try:
+            async for chunk in llm.astream(lc_messages):
+                if chunk.content:
+                    token = chunk.content
+                    full_response += token
+                    
+                    if on_token:
+                        on_token(token)
+        except Exception as e:
+            raise RuntimeError(f"Streaming failed: {e}")
+        
+        return full_response, metadata
 
     def get_tier_for_agent(self, agent_name: str) -> LLM_TIER:
         """Route agent to appropriate tier."""

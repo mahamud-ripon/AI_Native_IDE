@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, CreateBucketCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
@@ -29,16 +29,72 @@ class StorageService {
 
   constructor() {
     this.bucket = config.s3.bucket;
+    
+    const endpoint = config.s3.endpoint;
+    const region = config.s3.region || 'us-east-1';
+    
+    logger.info('Storage service initializing', { 
+      bucket: this.bucket, 
+      endpoint: endpoint || 'AWS default',
+      region,
+      hasAccessKey: !!config.s3.accessKeyId,
+      hasSecretKey: !!config.s3.secretAccessKey,
+    });
+    
     this.s3Client = new S3Client({
-      region: config.s3.region,
-      credentials: {
+      region: region,
+      credentials: config.s3.accessKeyId && config.s3.secretAccessKey ? {
         accessKeyId: config.s3.accessKeyId,
         secretAccessKey: config.s3.secretAccessKey,
-      },
-      endpoint: config.s3.endpoint,
-      forcePathStyle: !!config.s3.endpoint, // Required for MinIO/LocalStack
+      } : undefined,
+      endpoint: endpoint,
+      forcePathStyle: !!endpoint, // Required for MinIO/LocalStack
+      tls: endpoint?.startsWith('https'),
     });
+    
+    // Log initialization
     logger.info('Storage service initialized', { bucket: this.bucket });
+  }
+
+  /**
+   * Initialize storage - create bucket if it doesn't exist
+   */
+  async initialize(): Promise<boolean> {
+    try {
+      await this.s3Client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      logger.info('Storage bucket exists', { bucket: this.bucket });
+      return true;
+    } catch (error) {
+      // Bucket doesn't exist, try to create it
+      logger.warn('Storage bucket does not exist, attempting to create', { bucket: this.bucket });
+      try {
+        await this.s3Client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+        logger.info('Storage bucket created', { bucket: this.bucket });
+        return true;
+      } catch (createError) {
+        logger.error('Failed to create storage bucket', { 
+          bucket: this.bucket, 
+          error: createError 
+        });
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Health check for storage service
+   */
+  async healthCheck(): Promise<{ healthy: boolean; bucket: string; error?: string }> {
+    try {
+      await this.s3Client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return { healthy: true, bucket: this.bucket };
+    } catch (error) {
+      return { 
+        healthy: false, 
+        bucket: this.bucket,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 
   /**

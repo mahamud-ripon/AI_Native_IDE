@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../middleware';
+import { authMiddleware, mixedAuthMiddleware } from '../middleware';
 import * as projectController from '../controllers/project.controller';
 import * as fileController from '../controllers/file.controller';
 import * as secretController from '../controllers/secret.controller';
@@ -30,8 +30,7 @@ export async function routes(fastify: FastifyInstance): Promise<void> {
   fastify.delete('/api/v1/projects/:id/files/:fileId', { preHandler: authMiddleware }, fileController.deleteFile);
   fastify.put('/api/v1/projects/:id/files/:fileId/move', { preHandler: authMiddleware }, fileController.moveFile);
   
-  // AI Agent file sync endpoint (batch create/update files)
-  fastify.post('/api/v1/projects/:id/files/sync', { preHandler: authMiddleware }, fileController.syncFiles);
+  fastify.post('/api/v1/projects/:id/files/sync', { preHandler: mixedAuthMiddleware }, fileController.syncFiles);
 
   // Secret routes
   fastify.get('/api/v1/projects/:id/secrets', { preHandler: authMiddleware }, secretController.listSecrets);

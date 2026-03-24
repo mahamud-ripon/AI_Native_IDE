@@ -4,11 +4,11 @@ import crypto from 'crypto';
 // Basic in-memory representations for development testing
 export const db = {
   users: [] as any[],
-  refresh_tokens: [] as any[],
-  audit_logs: [] as any[],
+  refreshTokens: [] as any[],
+  auditLogs: [] as any[],
 };
 
-// Simulated Prisma Client methods
+// Simulated Prisma Client methods - using correct Prisma model names
 export const prisma = {
   user: {
     findUnique: async ({ where }: any) => db.users.find(u => 
@@ -16,34 +16,55 @@ export const prisma = {
       (where.username && u.username === where.username)
     ) || null,
     
+    findFirst: async ({ where }: any) => {
+      if (where.OR) {
+        return db.users.find(u => 
+          where.OR.some((cond: any) => 
+            (cond.email && u.email === cond.email) || 
+            (cond.username && u.username === cond.username)
+          ) && (!where.deletedAt || u.deletedAt === null)
+        ) || null;
+      }
+      return db.users.find(u => 
+        (where.email && u.email === where.email) || 
+        (where.username && u.username === where.username)
+      ) || null;
+    },
+    
     create: async ({ data }: any) => {
-      const newUser = { id: crypto.randomUUID(), ...data, mfa_enabled: false };
+      const newUser = { id: crypto.randomUUID(), ...data, mfaEnabled: data.mfaEnabled || false, hashedPassword: data.hashedPassword };
       db.users.push(newUser);
       return newUser;
     }
   },
-  refresh_token: {
-    findFirst: async ({ where }: any) => db.refresh_tokens.find(rt => rt.token === where.token && !rt.is_revoked) || null,
+  refreshToken: {
+    findFirst: async ({ where, include }: any) => {
+      const token = db.refreshTokens.find(rt => rt.tokenHash === where.tokenHash && !rt.isRevoked) || null;
+      if (token && include?.user) {
+        (token as any).user = db.users.find(u => u.id === token.userId);
+      }
+      return token;
+    },
     
     create: async ({ data }: any) => {
       const entry = { id: crypto.randomUUID(), ...data };
-      db.refresh_tokens.push(entry);
+      db.refreshTokens.push(entry);
       return entry;
     },
     
     update: async ({ where, data }: any) => {
-      const tokenIndex = db.refresh_tokens.findIndex(rt => rt.id === where.id);
+      const tokenIndex = db.refreshTokens.findIndex(rt => rt.id === where.id);
       if (tokenIndex !== -1) {
-        db.refresh_tokens[tokenIndex] = { ...db.refresh_tokens[tokenIndex], ...data };
-        return db.refresh_tokens[tokenIndex];
+        db.refreshTokens[tokenIndex] = { ...db.refreshTokens[tokenIndex], ...data };
+        return db.refreshTokens[tokenIndex];
       }
       return null;
     },
     
     updateMany: async ({ where, data }: any) => {
       let count = 0;
-      for (const rt of db.refresh_tokens) {
-        if (rt.user_id === where.user_id) {
+      for (const rt of db.refreshTokens) {
+        if (rt.userId === where.userId) {
           Object.assign(rt, data);
           count++;
         }
@@ -51,9 +72,9 @@ export const prisma = {
       return { count };
     }
   },
-  audit_log: {
+  auditLog: {
     create: async ({ data }: any) => {
-      db.audit_logs.push(data);
+      db.auditLogs.push(data);
       return data;
     }
   }

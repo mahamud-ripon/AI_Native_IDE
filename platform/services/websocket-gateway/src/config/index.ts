@@ -1,12 +1,20 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '8012', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-jwt-secret-key',
+    secret: requireEnv('JWT_SECRET'),
   },
 
   redis: {
@@ -16,9 +24,9 @@ export const config = {
   kafkaBrokers: process.env.KAFKA_BROKERS || 'localhost:9092',
 
   services: {
-    collab: process.env.COLLAB_SERVICE_URL || 'localhost:8005',
-    execution: process.env.EXECUTION_SERVICE_URL || 'localhost:8004',
-    ai: process.env.AI_SERVICE_URL || 'localhost:8003',
+    collab: process.env.COLLAB_SERVICE_URL || 'http://localhost:8005',
+    execution: process.env.EXECUTION_SERVICE_URL || 'http://localhost:8004',
+    ai: process.env.AI_SERVICE_URL || 'http://localhost:8003',
   },
 
   rateLimit: {
@@ -30,7 +38,7 @@ export const config = {
     pingTimeout: parseInt(process.env.PING_TIMEOUT_MS || '90000', 10),
   },
 
-  internalApiKey: process.env.INTERNAL_API_KEY || 'internal-api-key',
+  internalApiKey: requireEnv('INTERNAL_API_KEY'),
 } as const;
 
 export type Config = typeof config;

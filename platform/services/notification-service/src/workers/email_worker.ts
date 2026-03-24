@@ -1,10 +1,18 @@
 import { Queue, Worker, Job, QueueOptions, WorkerOptions } from 'bullmq';
 import { config } from '../config/index.js';
 import { EmailService } from '../services/email_service.js';
+import Redis from 'ioredis';
+
+// Parse Redis URL properly for bullmq (handles both redis:// and rediss://)
+const redisUrl = config.redis.url;
+const parsedUrl = new URL(redisUrl);
+const isTLS = redisUrl.startsWith('rediss://');
 
 const connectionOpts = {
-  host: config.redis.url.replace('redis://', '').split(':')[0] || 'localhost',
-  port: parseInt(config.redis.url.split(':').pop() || '6379', 10)
+  host: parsedUrl.hostname || 'localhost',
+  port: parseInt(parsedUrl.port || '6379', 10),
+  password: parsedUrl.password || undefined,
+  ...(isTLS ? { tls: {} } : {})
 };
 
 const queueOpts: QueueOptions = { connection: connectionOpts };

@@ -693,11 +693,11 @@ class EditorManager {
         applied.push(patch.patchId);
         
         // Track new files and modified files
-        if (patch.path) {
-          if (!newFiles.includes(patch.path)) {
-            newFiles.push(patch.path);
+        if (patch.filePath) {
+          if (!newFiles.includes(patch.filePath)) {
+            newFiles.push(patch.filePath);
           }
-          modifiedFiles.add(patch.path);
+          modifiedFiles.add(patch.filePath);
         }
       } else {
         failed.push(patch.patchId);
@@ -731,16 +731,17 @@ class EditorManager {
       try {
         const entries = await container.fs.readdir('.');
         // Check if we're already in the project dir or need to find it
-        if (entries.some(e => e.name === 'package.json')) {
+        if (entries.some((e: string | { name: string }) => typeof e === 'object' && e.name === 'package.json')) {
           baseDir = '.';
         } else {
           // Look for project directory
           for (const entry of entries) {
-            if (entry.isDirectory()) {
+            const entryObj = typeof entry === 'string' ? { name: entry, isDirectory: () => false } : entry;
+            if (entryObj.isDirectory && entryObj.isDirectory()) {
               try {
-                const subEntries = await container.fs.readdir(entry.name);
-                if (subEntries.some(e => e.name === 'package.json')) {
-                  baseDir = entry.name;
+                const subEntries = await container.fs.readdir(entryObj.name);
+                if (subEntries.some((e: string | { name: string }) => typeof e === 'object' && e.name === 'package.json')) {
+                  baseDir = entryObj.name;
                   break;
                 }
               } catch (e) {

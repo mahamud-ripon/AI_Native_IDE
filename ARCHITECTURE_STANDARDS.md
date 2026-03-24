@@ -18,14 +18,14 @@
 | **Frontend (Admin)** | Next.js 15 (App Router) | Dashboard with SSR for initial load |
 | **Backend Services** | Node.js + Fastify + TypeScript | Monorepo shared types, Prisma compatibility, unified language |
 | **AI Agents** | Python + LangGraph + FastAPI | LangChain/LangGraph ecosystem is Python-native |
-| **Database** | PostgreSQL 16 + Prisma ORM | Type-safe queries, migration tooling |
-| **Cache** | Redis 7 (Cluster mode) | Caching, rate limiting, pub/sub, sessions |
-| **Message Queue** | Apache Kafka | Event-driven inter-service communication |
+| **Database** | Neon.tech (PostgreSQL 16) + Prisma ORM | Type-safe queries, migration tooling, serverless |
+| **Cache** | Upstash Redis (serverless) | Caching, rate limiting, pub/sub, sessions |
+| **Message Queue** | Redpanda Cloud (Kafka-compatible) | Event-driven inter-service communication |
 | **Object Storage** | S3 / MinIO (local dev) | File content, snapshots, build logs |
 | **Search** | Elasticsearch 8 | Full-text code search, project discovery |
 | **Vector DB** | pgvector (PostgreSQL extension) | Code embeddings for RAG pipeline |
 | **API Gateway** | Custom Fastify Gateway | Rate limiting, circuit breaker, auth, proxy |
-| **Auth Provider** | Keycloak (OAuth2/OIDC) | GitHub/Google SSO, enterprise SAML |
+| **Auth Provider** | Custom Auth Service (JWT) | GitHub/Google OAuth2, enterprise SAML (future) |
 | **Secret Management** | HashiCorp Vault | Env vars, API keys, DB credentials |
 | **VM Runtime** | Firecracker microVMs | Secure code execution sandboxes |
 | **Monorepo Tooling** | Turborepo + pnpm | Build caching, workspace dependency resolution |
@@ -326,7 +326,7 @@ Project Level:   owner > editor > viewer
 ```
 
 ### Auth Flow
-1. Login → Keycloak → JWT pair (access + refresh)
+1. Login → Custom Auth Service → JWT pair (access + refresh)
 2. Every request → API Gateway validates JWT (RS256 signature + expiry)
 3. Service-level middleware checks RBAC role for the resource
 

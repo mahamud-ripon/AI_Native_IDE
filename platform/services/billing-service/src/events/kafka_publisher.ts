@@ -1,10 +1,8 @@
-import { Kafka, Producer } from 'kafkajs';
+import { Producer } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 
-const kafka = new Kafka({
-  clientId: 'billing-service-publisher',
-  brokers: config.kafkaBrokers,
-});
+const kafka = createKafkaClient({ clientId: 'billing-service-publisher' });
 
 const producer: Producer = kafka.producer();
 let isConnected = false;

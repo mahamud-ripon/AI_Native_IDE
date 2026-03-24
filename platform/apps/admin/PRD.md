@@ -802,19 +802,19 @@ export function useWebSocket(url: string) {
 
 ```bash
 # Run the app
-npm run dev
+pnpm dev -- --port 3001
 
 # Test login page
-curl http://localhost:3000/login
+curl http://localhost:3001/login
 
 # Test protected route (should redirect)
-curl -L http://localhost:3000/users
+curl -L http://localhost:3001/users
 
 # Test with valid token
-curl -H "Cookie: admin-token=<token>" http://localhost:3000/users
+curl -H "Cookie: admin-token=<token>" http://localhost:3001/users
 
 # Test server action
-curl -X POST http://localhost:3000/api/ban-user \
+curl -X POST http://localhost:3001/api/ban-user \
   -H "Content-Type: application/json" \
   -d '{"userId":"uuid"}'
 ```

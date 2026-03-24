@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { build } from '../src/app.js';
 import type { FastifyInstance } from 'fastify';
 import Redis from 'ioredis';
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Kafka, Consumer, EachMessagePayload, logLevel } from 'kafkajs';
 
 describe('LLM Gateway Integration', () => {
   let app: FastifyInstance;
@@ -35,6 +35,7 @@ describe('LLM Gateway Integration', () => {
     const kafka = new Kafka({
       clientId: 'test-consumer',
       brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
+      logLevel: logLevel.ERROR,
     });
     kafkaConsumer = kafka.consumer({ groupId: 'test-llm-events' });
     await kafkaConsumer.connect();

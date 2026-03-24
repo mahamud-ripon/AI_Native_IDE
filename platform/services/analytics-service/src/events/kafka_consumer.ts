@@ -1,11 +1,9 @@
-import { Kafka, Consumer } from 'kafkajs';
+import { Consumer } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config.js';
 import { redis } from '../lib/redis.js';
 
-const kafka = new Kafka({
-  clientId: 'analytics-service',
-  brokers: config.kafkaBrokers.split(','),
-});
+const kafka = createKafkaClient({ clientId: 'analytics-service', groupId: config.kafkaGroupId });
 
 const consumer = kafka.consumer({ groupId: config.kafkaGroupId });
 

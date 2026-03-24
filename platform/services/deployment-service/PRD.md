@@ -2,8 +2,8 @@
 
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
-> **Service:** deployment-service (Port 8011)  
-> **Tech Stack:** Node.js + Express + Prisma + Kafka + Vault
+> **Service:** deployment-service (Port 8010)  
+> **Tech Stack:** Node.js + Fastify + Prisma + Redpanda (Kafka-compatible) + Vault
 
 ---
 
@@ -21,7 +21,7 @@ The Deployment Service handles one-click deployment of user projects to Vercel, 
 mkdir -p deployment-service/src/{controllers,providers,services,events,lib,config}
 cd deployment-service
 npm init -y
-npm install express axios @prisma/client kafkajs zod dotenv cors helmet ws
+npm install fastify @fastify/cors @fastify/helmet axios @prisma/client kafkajs zod dotenv ws
 npm install -D typescript @types/node @types/ws ts-node prisma
 npx tsc --init
 ```
@@ -39,14 +39,14 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
     "axios": "^1.6.0",
-    "@prisma/client": "^5.8.0",
+    "@prisma/client": "^5.10.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
     "ws": "^8.14.0"
   },
   "devDependencies": {
@@ -54,7 +54,7 @@ npx tsc --init
     "@types/node": "^20.10.0",
     "@types/ws": "^8.5.10",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -782,7 +782,7 @@ export const DomainVerifier = {
 ### 6.1 Deploy Controller (src/controllers/deploy_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { BuildOrchestrator } from '../services/build_orchestrator';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
@@ -855,7 +855,7 @@ export const DeployController = {
 ### 6.2 History Controller (src/controllers/history_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma';
 
 export const HistoryController = {
@@ -916,7 +916,7 @@ export const HistoryController = {
 ### 6.3 Rollback Controller (src/controllers/rollback_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { BuildOrchestrator } from '../services/build_orchestrator';
 
 export const RollbackController = {
@@ -942,7 +942,7 @@ export const RollbackController = {
 ### 6.4 Domain Controller (src/controllers/domain_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
@@ -1170,9 +1170,9 @@ model Deployment {
 ### 9.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { DeployController } from './controllers/deploy_controller';
@@ -1180,35 +1180,25 @@ import { HistoryController } from './controllers/history_controller';
 import { RollbackController } from './controllers/rollback_controller';
 import { DomainController } from './controllers/domain_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'deployment-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'deployment-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Protected endpoints
-app.post('/api/v1/deploy/preview', authMiddleware, DeployController.deployPreview);
-app.post('/api/v1/deploy/production', authMiddleware, DeployController.deployProduction);
-app.get('/api/v1/deploy/history/:project_id', authMiddleware, HistoryController.getHistory);
-app.post('/api/v1/deploy/rollback/:deployment_id', authMiddleware, RollbackController.rollback);
-app.post('/api/v1/deploy/domains', authMiddleware, DomainController.addDomain);
-app.get('/api/v1/deploy/domains/:project_id', authMiddleware, DomainController.listDomains);
-app.delete('/api/v1/deploy/domains/:domain_id', authMiddleware, DomainController.deleteDomain);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.post('/api/v1/deploy/preview', { preHandler: authMiddleware }, DeployController.deployPreview);
+app.post('/api/v1/deploy/production', { preHandler: authMiddleware }, DeployController.deployProduction);
+app.get('/api/v1/deploy/history/:project_id', { preHandler: authMiddleware }, HistoryController.getHistory);
+app.post('/api/v1/deploy/rollback/:deployment_id', { preHandler: authMiddleware }, RollbackController.rollback);
+app.post('/api/v1/deploy/domains', { preHandler: authMiddleware }, DomainController.addDomain);
+app.get('/api/v1/deploy/domains/:project_id', { preHandler: authMiddleware }, DomainController.listDomains);
+app.delete('/api/v1/deploy/domains/:domain_id', { preHandler: authMiddleware }, DomainController.deleteDomain);
 
 export { app };
 ```
@@ -1257,16 +1247,16 @@ main().catch(console.error);
 npm run dev
 
 # Test health
-curl http://localhost:8011/api/v1/health
+curl http://localhost:8010/api/v1/health
 
 # Test preview deployment
-curl -X POST http://localhost:8011/api/v1/deploy/preview \
+curl -X POST http://localhost:8010/api/v1/deploy/preview \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"project_id":"uuid","branch":"main"}'
 
 # Test deployment history
-curl http://localhost:8011/api/v1/deploy/history/:project_id \
+curl http://localhost:8010/api/v1/deploy/history/:project_id \
   -H "Authorization: Bearer <token>"
 ```
 

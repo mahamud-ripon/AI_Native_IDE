@@ -39,4 +39,10 @@ export const config = {
   },
 
   internalApiKey: process.env.INTERNAL_API_KEY || 'internal-api-key',
+  
+  storage: {
+    // Always use S3 - no inline storage per DEVELOPMENT_LOGIC.md Priority 1.1
+    alwaysUseS3: true,
+  },
 };
+

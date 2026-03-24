@@ -21,6 +21,7 @@
     "@anthropic-ai/sdk": "^0.27.0",
     "@fastify/cors": "^8.4.1",
     "@fastify/helmet": "^11.1.1",
+    "@fastify/websocket": "^10.0.1",
     "@langchain/anthropic": "^0.1.0",
     "@langchain/openai": "^0.0.0",
     "@prisma/client": "^5.10.0",

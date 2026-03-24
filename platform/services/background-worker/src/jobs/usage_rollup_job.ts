@@ -99,26 +99,52 @@ export async function runUsageRollupJob(): Promise<void> {
         // Use transaction for batch update
         await prisma.$transaction(async (tx: any) => {
           for (const record of batch) {
-            // Upsert usage_daily record
-            await tx.usage_daily.upsert({
+            // Map metric type to the correct counter field
+            const updateData: any = {
+              updatedAt: new Date(),
+            };
+            
+            // UsageDaily has specific counter fields, not a generic metric_type
+            switch (record.type) {
+              case 'ai_request':
+                updateData.aiRequestsCount = { increment: record.value };
+                break;
+              case 'ai_tokens':
+                updateData.aiTokensUsed = { increment: record.value };
+                break;
+              case 'compute_seconds':
+                updateData.computeSeconds = { increment: record.value };
+                break;
+              case 'storage_bytes':
+                updateData.storageBytes = { increment: record.value };
+                break;
+              case 'deploys':
+                updateData.deploysCount = { increment: record.value };
+                break;
+              default:
+                logger.warn(`Unknown metric type: ${record.type}`);
+            }
+
+            // Upsert usageDaily record (camelCase model name per Prisma convention)
+            await tx.usageDaily.upsert({
               where: {
-                user_id_date_metric_type: {
-                  user_id: record.userId,
+                // UsageDaily has a unique constraint on userId + date
+                userId_date: {
+                  userId: record.userId,
                   date: new Date(record.date),
-                  metric_type: record.type,
                 },
               },
-              update: {
-                count: { increment: record.value },
-                updated_at: new Date(),
-              },
+              update: updateData,
               create: {
-                user_id: record.userId,
+                userId: record.userId,
                 date: new Date(record.date),
-                metric_type: record.type,
-                count: record.value,
-                created_at: new Date(),
-                updated_at: new Date(),
+                aiRequestsCount: record.type === 'ai_request' ? record.value : 0,
+                aiTokensUsed: record.type === 'ai_tokens' ? record.value : 0,
+                computeSeconds: record.type === 'compute_seconds' ? record.value : 0,
+                storageBytes: record.type === 'storage_bytes' ? record.value : 0,
+                deploysCount: record.type === 'deploys' ? record.value : 0,
+                createdAt: new Date(),
+                updatedAt: new Date(),
               },
             });
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
 
@@ -27,7 +27,7 @@ from .parallel_execution import (
 )
 from .security import JailbreakClassifier
 from .state_schema import AgentState
-from .streaming import EventEmitter, StreamEvent
+from .streaming import EventEmitter, EventType, StreamEvent
 from ..agents.architect_agent import ArchitectAgent
 from ..agents.backend_agent import BackendAgent
 from ..agents.devops_agent import DevOpsAgent
@@ -105,6 +105,11 @@ class GraphBuilder:
         """Emit event if emitter is configured."""
         if self.emitter:
             await self.emitter.emit(event)
+
+    async def _emit_token(self, agent_name: str, token: str) -> None:
+        """Emit individual token for real-time streaming display."""
+        if self.emitter:
+            await self.emitter.emit(StreamEvent.token(agent_name, token))
 
     async def _run_parallel_phase(self, state: AgentState) -> dict:
         """Run Backend, Frontend, and DevOps agents in parallel.
@@ -201,7 +206,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 await self._emit(StreamEvent.agent_complete(
@@ -220,7 +225,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 await self._emit(StreamEvent.agent_complete(
@@ -239,7 +244,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 await self._emit(StreamEvent.agent_complete(
@@ -377,7 +382,35 @@ class GraphBuilder:
         await self._emit(StreamEvent.agent_progress("pm_agent", 10, "Processing user prompt..."))
 
         try:
-            result = await self.pm.run(state)
+            # Use streaming mode if emitter is available
+            if self.emitter:
+                # Token callback for streaming
+                async def on_token(token: str):
+                    await self._emit_token("pm_agent", token)
+                
+                # Get streaming generator - yields (token, metadata) tuples
+                stream_gen = self.pm.run_stream(state, on_token=on_token)
+                
+                # Consume the generator
+                result = None
+                async for token, metadata in stream_gen:
+                    # Check if this is the final result
+                    if metadata.get("done"):
+                        if "error" in metadata:
+                            result = {"errors": [metadata["error"]]}
+                        else:
+                            result = {
+                                "pm_output": metadata.get("pm_output"),
+                                "cost_sofar": metadata.get("cost_sofar", 0.0),
+                                "cache_stats": metadata.get("cache_stats"),
+                            }
+                        break
+                
+                if result is None:
+                    result = {"errors": ["PM Agent streaming returned no result"]}
+            else:
+                # Non-streaming mode
+                result = await self.pm.run(state)
 
             if "errors" in result and result["errors"]:
                 await self._emit(StreamEvent.agent_error("pm_agent", str(result["errors"])))
@@ -402,7 +435,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-opus",
+                    model="claude-3-opus-20240229",
                     success=True,
                 )
                 
@@ -421,7 +454,7 @@ class GraphBuilder:
                 agent_name="pm_agent",
                 input_tokens=0,
                 output_tokens=0,
-                model="claude-3-opus",
+                model="claude-3-opus-20240229",
                 success=False,
                 error=str(e),
             )
@@ -457,7 +490,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-opus",
+                    model="claude-3-opus-20240229",
                     success=True,
                 )
                 
@@ -476,7 +509,7 @@ class GraphBuilder:
                 agent_name="architect_agent",
                 input_tokens=0,
                 output_tokens=0,
-                model="claude-3-opus",
+                model="claude-3-opus-20240229",
                 success=False,
                 error=str(e),
             )
@@ -502,7 +535,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 
@@ -547,7 +580,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 
@@ -592,7 +625,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 
@@ -646,7 +679,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 
@@ -700,7 +733,7 @@ class GraphBuilder:
                     input_tokens=cache_stats.get("input_tokens", 0) if cache_stats else 0,
                     output_tokens=cache_stats.get("output_tokens", 0) if cache_stats else 0,
                     cached_tokens=cache_stats.get("cached_tokens", 0) if cache_stats else 0,
-                    model="claude-3-sonnet",
+                    model="claude-3-5-sonnet-20241022",
                     success=True,
                 )
                 
@@ -787,15 +820,13 @@ class GraphBuilder:
             
             # Emit patch proposed events for IDE preview
             if patches_to_apply:
-                await self._emit(StreamEvent(
-                    event_type="ai_patch_proposed",
+                await self._emit(StreamEvent.ai_patch_proposed(
                     agent_name="code_execution_agent",
-                    project_id=state.project_id,
-                    workspace_id=state.project_id,
-                    data={
-                        "patches": {path: [op.model_dump() for op in ops] for path, ops in patches_to_apply.items()},
-                        "file_count": len(patches_to_apply)
-                    }
+                    patches={
+                        path: [op.model_dump() for op in ops]
+                        for path, ops in patches_to_apply.items()
+                    },
+                    file_count=len(patches_to_apply),
                 ))
             
             if not files_to_create and not patches_to_apply:
@@ -822,10 +853,15 @@ class GraphBuilder:
                 # Emit file.created events for each file
                 for file_path in files_created:
                     await self._emit(StreamEvent(
-                        event_type="file.created",
-                        project_id=state.project_id,
-                        workspace_id=state.project_id,
-                        data={"file_path": file_path, "action": "created"}
+                        event_type=EventType.WORKFLOW_COMPLETE,  # reuse closest; IDE listens to data
+                        agent_name="code_execution_agent",
+                        message="file.created",
+                        data={
+                            "event": "file.created",
+                            "file_path": file_path,
+                            "project_id": state.project_id,
+                            "action": "created",
+                        },
                     ))
             
             # Step 2: Apply patches to existing files
@@ -845,10 +881,15 @@ class GraphBuilder:
                 # Emit file.modified events for patched files
                 for file_path in patches_applied:
                     await self._emit(StreamEvent(
-                        event_type="file.modified",
-                        project_id=state.project_id,
-                        workspace_id=state.project_id,
-                        data={"file_path": file_path, "action": "modified"}
+                        event_type=EventType.AGENT_COMPLETE,
+                        agent_name="code_execution_agent",
+                        message="file.modified",
+                        data={
+                            "event": "file.modified",
+                            "file_path": file_path,
+                            "project_id": state.project_id,
+                            "action": "modified",
+                        },
                     ))
             
             # Step 3: Install dependencies if specified

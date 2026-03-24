@@ -6,7 +6,7 @@ const logger = {
   error: (msg: string, err?: any) => console.error(`[AI Orchestrator] ${msg}`, err),
 };
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8005';
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8003';
 
 interface OrchestrateTask {
   conversationId: string;

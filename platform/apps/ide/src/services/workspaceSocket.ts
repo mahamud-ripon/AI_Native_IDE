@@ -1,4 +1,5 @@
 import { logger } from '../lib/logger';
+import { useIDEStore } from '../stores/ideStore';
 
 export interface WorkspaceFileEvent {
   type: 'workspace.file.event';
@@ -33,14 +34,14 @@ class WorkspaceSocketService {
     this.currentProjectId = projectId;
     
     // Get token from localStorage
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
     if (!token) {
       logger.warn('No auth token found for workspace socket');
       return;
     }
 
     // Get WebSocket URL from environment or use default
-    const wsUrl = import.meta.env.VITE_WS_GATEWAY_URL || 'ws://localhost:8001';
+    const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_WS_GATEWAY_URL || 'ws://localhost:8012';
     this.url = `${wsUrl}/gateway?token=${token}`;
 
     this.disconnect();
@@ -51,6 +52,7 @@ class WorkspaceSocketService {
 
         this.ws.onopen = () => {
           logger.info({ projectId }, 'Workspace WebSocket connected');
+          useIDEStore.getState().setWorkspaceConnected(true);
           this.reconnectAttempts = 0;
           
           // Subscribe to project channel
@@ -73,11 +75,13 @@ class WorkspaceSocketService {
 
         this.ws.onclose = () => {
           logger.info('Workspace WebSocket disconnected');
+          useIDEStore.getState().setWorkspaceConnected(false);
           this.attemptReconnect();
         };
 
         this.ws.onerror = (error) => {
           logger.error({ error }, 'Workspace WebSocket error');
+          useIDEStore.getState().setWorkspaceConnected(false);
           reject(error);
         };
       } catch (error) {
@@ -106,7 +110,11 @@ class WorkspaceSocketService {
         break;
       
       case 'connected':
-        logger.debug({ connId: (message as any).connId }, 'WebSocket connected');
+        logger.info({ 
+          connId: (message as any).connId, 
+          userId: (message as any).userId, 
+          timestamp: (message as any).timestamp 
+        }, 'Workspace WebSocket connected and authenticated');
         break;
       
       default:

@@ -61,9 +61,9 @@ export const SubscriptionService = {
     stripeSubscriptionId: string,
     data: {
       status: SubStatus;
-      plan: PlanType;
-      currentPeriodStart: Date;
-      currentPeriodEnd: Date;
+      plan?: PlanType;
+      currentPeriodStart?: Date;
+      currentPeriodEnd?: Date;
       stripeCustomerId?: string;
     }
   ): Promise<void> {
@@ -90,11 +90,11 @@ export const SubscriptionService = {
 
     // Update Redis cache instantly
     if (subscription.userId) {
-      await cachePlan(subscription.userId, data.plan, data.status);
+      await cachePlan(subscription.userId, data.plan ?? subscription.plan, data.status);
     }
 
     // Log plan change
-    if (previousPlan !== data.plan) {
+    if (data.plan && previousPlan !== data.plan) {
       console.log(`[Subscription] Plan changed: ${previousPlan} -> ${data.plan} for user ${subscription.userId}`);
     }
   },

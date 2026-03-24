@@ -7,7 +7,7 @@ const logger = {
   error: (msg: string, err?: any) => console.error(`[VM Hibernation] ${msg}`, err),
 };
 
-const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL || 'http://localhost:3005';
+const EXECUTION_SERVICE_URL = process.env.EXECUTION_SERVICE_URL || 'http://localhost:8004';
 const IDLE_THRESHOLD_MINUTES = 10;
 
 export async function runVMHibernationJob(): Promise<void> {

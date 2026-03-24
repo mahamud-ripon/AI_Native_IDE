@@ -50,7 +50,7 @@ export async function callPythonAgent(request: PythonAgentRequest): Promise<Pyth
       throw new Error(`Python AI Agents error: ${response.status} - ${error}`);
     }
 
-    return await response.json();
+    return await response.json() as PythonAgentResponse;
   } catch (error) {
     console.error('[PythonAgentClient] Error calling Python AI Agents:', error);
     throw error;
@@ -118,10 +118,15 @@ export async function* callPythonAgentStream(request: PythonAgentRequest): Async
  */
 export async function checkPythonAgentsHealth(): Promise<boolean> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const response = await fetch(`${PYTHON_AGENTS_URL}/health`, {
       method: 'GET',
-      timeout: 5000,
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     return response.ok;
   } catch {
     return false;

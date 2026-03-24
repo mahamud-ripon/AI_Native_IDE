@@ -58,13 +58,14 @@ export async function runGarbageCollector(): Promise<void> {
       logger.warn('Invitations table not available:', e.message);
     }
 
-    // 3. Find orphaned project_files (rows with NULL s3_key AND NULL inline_content)
+    // 3. Find orphaned project_files (rows with NULL s3_key AND NULL inline_content, but NOT directories)
     try {
       const orphanedResult = await prisma.projectFile.deleteMany({
         where: {
           AND: [
             { s3Key: { equals: null } },
             { inlineContent: { equals: null } },
+            { isDirectory: false }, // ❌ Critical: Exclude directories which legitimately have null content
           ],
         },
       }) || { count: 0 };

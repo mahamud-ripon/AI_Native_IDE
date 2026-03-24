@@ -68,7 +68,7 @@ const structure = {
         {
           name: "api-gateway/",
           type: "dir",
-          desc: "API Gateway — Kong + Fastify Routing (TypeScript)",
+          desc: "API Gateway — Fastify Custom Gateway (TypeScript)",
           color: "#f472b6",
           children: [
             { name: "src/proxy/", type: "dir", desc: "Circuit breaker, rate limiting, auth middleware" },
@@ -83,7 +83,7 @@ const structure = {
         {
           name: "auth-service/",
           type: "dir",
-          desc: "Authentication & Identity — Keycloak + JWT (TypeScript)",
+          desc: "Authentication & Identity — Custom JWT Auth + OAuth2 (TypeScript)",
           color: "#f472b6",
           children: [
             { name: "src/api/", type: "dir", desc: "Route handlers: /register, /login, /refresh, /oauth" },
@@ -394,7 +394,7 @@ const structure = {
           desc: "Docker Compose for local development",
           color: "#fb923c",
           children: [
-            { name: "docker-compose.dev.yml", type: "file", desc: "Full local stack: PG, Redis, Kafka, MinIO, Keycloak" },
+            { name: "docker-compose.dev.yml", type: "file", desc: "Full local stack: PG, Redis, Kafka, MinIO" },
             { name: "docker-compose.test.yml", type: "file", desc: "Lightweight test stack" },
           ]
         }

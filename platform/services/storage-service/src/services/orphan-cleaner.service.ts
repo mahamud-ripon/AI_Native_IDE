@@ -84,11 +84,23 @@ export const OrphanCleaner = {
       orphanKeys = orphans.length;
       logger.info({ orphanCount: orphanKeys }, 'Found orphaned objects');
 
-      // Delete orphans (with safety margin check in production)
+      // Delete orphans (with safety margin)
       for (const key of orphans) {
         try {
-          // In production, you would check object creation time
-          // For now, we delete all orphans
+          // Check object creation time against safety margin
+          try {
+            const meta = await S3Service.getMetadata(config.s3.buckets.userFiles, key);
+            const lastModified = meta.lastModified;
+            if (lastModified && lastModified > cutoffTime) {
+              logger.debug({ key, lastModified }, 'Skipping orphan - within safety margin');
+              continue;
+            }
+          } catch {
+            // If we can't get metadata, skip this key for safety
+            logger.warn({ key }, 'Could not get metadata for orphan, skipping');
+            continue;
+          }
+
           await S3Service.delete(config.s3.buckets.userFiles, key);
           deleted++;
           logger.debug({ key }, 'Deleted orphaned object');
@@ -170,6 +182,15 @@ export const OrphanCleaner = {
         select: { s3Key: true },
       });
       const validKeys = new Set(dbFiles.map((f) => f.s3Key).filter(Boolean) as string[]);
+
+      // Also include fileVersion table keys
+      const fileVersions = await prisma.fileVersion.findMany({
+        where: { s3Key: { not: null } },
+        select: { s3Key: true },
+      });
+      fileVersions.forEach((fv) => {
+        if (fv.s3Key) validKeys.add(fv.s3Key);
+      });
 
       orphanCount = s3Keys.filter((k) => !validKeys.has(k)).length;
     } catch (error) {

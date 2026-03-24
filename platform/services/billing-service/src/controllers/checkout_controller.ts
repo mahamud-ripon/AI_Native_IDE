@@ -33,13 +33,26 @@ export const CheckoutController = {
       }
 
       // Get user's Stripe customer ID
-      const user = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { stripeCustomerId: true }
+        select: { stripeCustomerId: true, email: true }
       });
 
-      if (!user?.stripeCustomerId) {
-        return reply.status(400).send({ error: 'No Stripe customer found' });
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
+
+      // Create Stripe customer if missing (new users)
+      if (!user.stripeCustomerId) {
+        const customer = await StripeClient.createCustomer(user.email || `user-${userId}@platform.io`);
+        
+        // Update user with new Stripe customer ID
+        await prisma.user.update({
+          where: { id: userId },
+          data: { stripeCustomerId: customer.id }
+        });
+        
+        user = { ...user, stripeCustomerId: customer.id };
       }
 
       const priceId = PRICE_MAP[data.plan];
@@ -48,7 +61,7 @@ export const CheckoutController = {
       }
 
       const session = await StripeClient.createCheckoutSession(
-        user.stripeCustomerId,
+        user.stripeCustomerId!,
         priceId,
         data.successUrl,
         data.cancelUrl
@@ -71,19 +84,31 @@ export const CheckoutController = {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
 
-      const user = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { stripeCustomerId: true }
+        select: { stripeCustomerId: true, email: true }
       });
 
-      if (!user?.stripeCustomerId) {
-        return reply.status(400).send({ error: 'No Stripe customer found' });
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
+
+      // Create Stripe customer if missing (new users)
+      if (!user.stripeCustomerId) {
+        const customer = await StripeClient.createCustomer(user.email || `user-${userId}@platform.io`);
+        
+        await prisma.user.update({
+          where: { id: userId },
+          data: { stripeCustomerId: customer.id }
+        });
+        
+        user = { ...user, stripeCustomerId: customer.id };
       }
 
       const returnUrl = data.returnUrl || 'https://platform.io/billing';
       
       const session = await StripeClient.createPortalSession(
-        user.stripeCustomerId,
+        user.stripeCustomerId!,
         returnUrl
       );
 

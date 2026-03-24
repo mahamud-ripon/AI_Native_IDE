@@ -5,11 +5,10 @@
 > **Law:** No microservice PR shall be merged if it violates these distributed transaction constraints.
 
 ---
-
-## 🚀 1. Event-Driven Matrix (Kafka & Redis)
+## 🚀 1. Event-Driven Matrix (for development using Redpanda & Redis)
 Microservices **MUST NEVER** call each other synchronously (via HTTP/REST) for mutating operations that take longer than 50ms. All state changes must be broadcasted asynchronously to prevent cascading timeouts.
 
-### 🟡 Primary Event Broker: Apache Kafka (Persistent, Replayable)
+### 🟡 Primary Event Broker: (Development only) Redpanda Cloud (Kafka-compatible, Persistent, Replayable)
 Used for critical business logic where losing an event means data corruption.
 
 > **Rule:** Every topic payload MUST conform to the schema in `KAFKA_EVENT_CONTRACTS.md`. No ad-hoc field names.  
@@ -58,7 +57,7 @@ Used for critical business logic where losing an event means data corruption.
 | `deployment.completed` | `deployment-service` | `notification-service` | Build succeeds — live URL available. | `project_id` |
 | `deployment.failed` | `deployment-service` | `notification-service` | Build or deploy failed after retries. | `project_id` |
 
-### 🔵 Ephemeral Event Broker: Redis Pub/Sub
+### 🔵 Ephemeral Event Broker: Redis/Upstash Redis Pub/Sub
 Used for high-frequency, transient data where missing 1 tick is acceptable if the client reconnects.
 
 | Channel Pattern | Publisher | Subscriber | Data Format | Purpose |

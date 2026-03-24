@@ -63,6 +63,7 @@ describe('Search Service', () => {
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
     process.env.KAFKA_ENABLED = 'false';
     process.env.ELASTICSEARCH_NODE = 'http://localhost:9200';
+  process.env.ELASTICSEARCH_API_KEY = 'test-api-key';
     process.env.JWT_SECRET = 'test-secret';
     process.env.INTERNAL_API_KEY = 'test-api-key';
     

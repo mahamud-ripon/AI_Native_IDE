@@ -20,7 +20,7 @@ info:
     name: Platform Team
 
 servers:
-  - url: http://localhost:8001
+  - url: http://localhost:3100
     description: Local development
   - url: https://api.platform.io
     description: Production

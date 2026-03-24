@@ -20,17 +20,43 @@ interface ParsedMessage {
   payload?: unknown;
 }
 
+// Allowed channel prefixes for security
+const ALLOWED_CHANNEL_PREFIXES = [
+  'collab:', 'terminal:', 'ai:', 'execution:', 'notifications:', 'deploy:', 'presence:', 'preview.hmr:', 'project:',
+];
+
+function validateChannel(channel: string): boolean {
+  if (!channel || typeof channel !== 'string' || channel.length > 256) return false;
+  if (channel.includes('\0') || channel.includes('\n')) return false;
+  return ALLOWED_CHANNEL_PREFIXES.some(prefix => channel.startsWith(prefix));
+}
+
 const connections = new Map<string, Connection>();
 const userConnections = new Map<string, Set<string>>();
 
 export const ConnectionManager = {
   async handleConnection(ws: WebSocket, token: string): Promise<string | null> {
     try {
-      const decoded = jwt.verify(token, config.jwt.secret) as jwt.JwtPayload;
-      const userId = decoded.sub || decoded.userId;
+      let decoded: jwt.JwtPayload;
+      const publicKey = process.env.JWT_PUBLIC_KEY || '';
+
+      if (publicKey) {
+        decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] }) as jwt.JwtPayload;
+      } else {
+        // Dev fallback
+        const devBypass = process.env.DEV_BYPASS_AUTH === 'true';
+        if (devBypass || process.env.NODE_ENV !== 'production') {
+          decoded = jwt.decode(token) as jwt.JwtPayload;
+          if (!decoded) throw new Error('Invalid token');
+        } else {
+          // Should not happen in production without a public key
+          throw new Error('Missing public key for verification');
+        }
+      }
+      const userId = decoded.sub;
 
       if (!userId) {
-        ws.close(4001, 'Invalid token');
+        ws.close(4001, 'Invalid token: missing subject');
         return null;
       }
 
@@ -54,17 +80,42 @@ export const ConnectionManager = {
 
       logger.info({ connId, userId }, 'New WebSocket connection');
 
-      ws.send(
-        JSON.stringify({
-          type: 'connected',
-          connId,
-          userId,
-        })
-      );
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'connected',
+              timestamp: Date.now(),
+              connId,
+              userId,
+            })
+          );
+        } else {
+          logger.warn({ state: ws.readyState, connId }, 'WS not open');
+        }
+      } catch (sendErr) {
+        const error = sendErr as Error;
+        logger.error(
+          { 
+            error: error?.message || 'Unknown error', 
+            stack: error?.stack,
+            connId 
+          }, 
+          'Failed to send connected message'
+        );
+        connections.delete(connId);
+        const userConns = userConnections.get(userId);
+        if (userConns) userConns.delete(connId);
+        return null;
+      }
 
       return connId;
     } catch (error) {
-      logger.error({ error }, 'WebSocket auth error');
+      const err = error as Error;
+      logger.error({ 
+        error: err?.message || 'Unknown error',
+        stack: err?.stack
+      }, 'WebSocket auth error');
       ws.close(4001, 'Authentication failed');
       return null;
     }
@@ -82,14 +133,20 @@ export const ConnectionManager = {
 
       switch (data.type) {
         case 'subscribe':
-          await this.subscribe(connId, data.channel!);
+          if (data.channel && validateChannel(data.channel)) {
+            await this.subscribe(connId, data.channel);
+          } else {
+            this.sendToConnection(connId, { type: 'error', message: 'Invalid channel' });
+          }
           break;
         case 'unsubscribe':
-          await this.unsubscribe(connId, data.channel!);
+          if (data.channel && validateChannel(data.channel)) {
+            await this.unsubscribe(connId, data.channel);
+          }
           break;
         case 'ping':
           connection.lastPing = Date.now();
-          connection.ws.send(JSON.stringify({ type: 'pong' }));
+          this.sendToConnection(connId, { type: 'pong' });
           break;
         case 'message':
           await this.routeMessage(connId, data);
@@ -98,7 +155,12 @@ export const ConnectionManager = {
           logger.debug({ type: data.type }, 'Unknown message type');
       }
     } catch (error) {
-      logger.error({ error }, 'Error handling message');
+      const err = error as Error;
+      logger.error({ 
+        error: err?.message || 'Unknown error',
+        stack: err?.stack,
+        connId 
+      }, 'Error handling message');
     }
   },
 
@@ -109,12 +171,12 @@ export const ConnectionManager = {
     connection.subscribedChannels.add(channel);
     logger.debug({ connId, channel }, 'Subscribed to channel');
 
-    connection.ws.send(
-      JSON.stringify({
+    if (connection.ws.readyState === WebSocket.OPEN) {
+      this.sendToConnection(connId, {
         type: 'subscribed',
         channel,
-      })
-    );
+      });
+    }
   },
 
   async unsubscribe(connId: string, channel: string): Promise<void> {
@@ -124,12 +186,12 @@ export const ConnectionManager = {
     connection.subscribedChannels.delete(channel);
     logger.debug({ connId, channel }, 'Unsubscribed from channel');
 
-    connection.ws.send(
-      JSON.stringify({
+    if (connection.ws.readyState === WebSocket.OPEN) {
+      this.sendToConnection(connId, {
         type: 'unsubscribed',
         channel,
-      })
-    );
+      });
+    }
   },
 
   async routeMessage(connId: string, data: ParsedMessage): Promise<void> {
@@ -137,13 +199,11 @@ export const ConnectionManager = {
     if (!connection) return;
 
     const channel = data.channel;
-    if (!channel) {
-      connection.ws.send(
-        JSON.stringify({
-          type: 'error',
-          message: 'Channel is required',
-        })
-      );
+    if (!channel || !validateChannel(channel)) {
+      this.sendToConnection(connId, {
+        type: 'error',
+        message: 'Valid channel is required',
+      });
       return;
     }
 
@@ -184,6 +244,11 @@ export const ConnectionManager = {
     const projectId = channelParts[1];
     const fileId = channelParts[2];
 
+    if (!projectId || !fileId) {
+      this.sendToConnection(connection.connId, { type: 'error', message: 'Invalid collab channel format' });
+      return;
+    }
+
     await publish(`collab:${projectId}:${fileId}`, {
       type: data.payload ? 'update' : 'sync',
       connId: connection.connId,
@@ -196,6 +261,11 @@ export const ConnectionManager = {
     const channelParts = data.channel!.split(':');
     const sessionId = channelParts[1];
 
+    if (!sessionId) {
+      this.sendToConnection(connection.connId, { type: 'error', message: 'Invalid terminal channel format' });
+      return;
+    }
+
     await publish(`terminal:${sessionId}`, {
       type: 'input',
       connId: connection.connId,
@@ -207,6 +277,11 @@ export const ConnectionManager = {
   async routeToAIService(connection: Connection, data: ParsedMessage): Promise<void> {
     const channelParts = data.channel!.split(':');
     const conversationId = channelParts[1];
+
+    if (!conversationId) {
+      this.sendToConnection(connection.connId, { type: 'error', message: 'Invalid AI channel format' });
+      return;
+    }
 
     await publish(`ai:${conversationId}`, {
       type: 'request',
@@ -228,6 +303,11 @@ export const ConnectionManager = {
     const channelParts = data.channel!.split(':');
     const deploymentId = channelParts[1];
 
+    if (!deploymentId) {
+      this.sendToConnection(connection.connId, { type: 'error', message: 'Invalid deploy channel format' });
+      return;
+    }
+
     await publish(`deploy:${deploymentId}`, {
       type: 'log',
       payload: data.payload,
@@ -237,6 +317,11 @@ export const ConnectionManager = {
   async routeToPresenceService(connection: Connection, data: ParsedMessage): Promise<void> {
     const channelParts = data.channel!.split(':');
     const projectId = channelParts[1];
+
+    if (!projectId) {
+      this.sendToConnection(connection.connId, { type: 'error', message: 'Invalid presence channel format' });
+      return;
+    }
 
     await publish(`presence:${projectId}`, {
       type: 'cursor',
@@ -248,6 +333,11 @@ export const ConnectionManager = {
   async routeToPreviewService(connection: Connection, data: ParsedMessage): Promise<void> {
     const channelParts = data.channel!.split(':');
     const projectId = channelParts[1];
+
+    if (!projectId) {
+      this.sendToConnection(connection.connId, { type: 'error', message: 'Invalid preview channel format' });
+      return;
+    }
 
     await publish(`preview.hmr:${projectId}`, {
       type: 'update',
@@ -269,7 +359,16 @@ export const ConnectionManager = {
         userConnections.delete(userId);
 
         // Publish user offline event
-        await publish('user.offline', { userId, connId });
+        try {
+          await publish('user.offline', { userId, connId });
+        } catch (error) {
+          const err = error as Error;
+          logger.error({ 
+            error: err?.message || 'Unknown error',
+            stack: err?.stack,
+            userId 
+          }, 'Failed to publish user offline event');
+        }
         logger.info({ userId }, 'User went offline');
       }
     }
@@ -286,8 +385,12 @@ export const ConnectionManager = {
     }
 
     const msg = typeof message === 'string' ? message : JSON.stringify(message);
-    connection.ws.send(msg);
-    return true;
+    try {
+      connection.ws.send(msg);
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   broadcastToChannel(channel: string, message: unknown): number {
@@ -296,8 +399,12 @@ export const ConnectionManager = {
 
     connections.forEach((connection) => {
       if (connection.subscribedChannels.has(channel) && connection.ws.readyState === WebSocket.OPEN) {
-        connection.ws.send(msg);
-        count++;
+        try {
+          connection.ws.send(msg);
+          count++;
+        } catch {
+          // Connection may have closed between readyState check and send
+        }
       }
     });
 

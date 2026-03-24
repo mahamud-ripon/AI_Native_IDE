@@ -23,16 +23,20 @@
 | **Frontend (Marketing/Admin)** | Next.js 15 (App Router) |
 | **Backend Services** | Node.js + Fastify + TypeScript (14 microservices) |
 | **AI Agents** | Python + LangGraph + FastAPI |
-| **Database** | PostgreSQL 16 + Prisma ORM + pgvector |
+<!-- || **Database** | PostgreSQL 16 + Prisma ORM + pgvector |
 | **Cache/Queue** | Redis 7 (Cluster) + BullMQ |
-| **Message Queue** | Apache Kafka (event-driven architecture) |
+| **Message Queue** | Apache Kafka (event-driven architecture) | -->
+ **Database** | Neon.tech (PostgreSQL 16) + Prisma ORM + pgvector |
+| **Cache/Queue** | Upstash Redis (serverless) + BullMQ |
+| **Message Queue** | Redpanda Cloud (Kafka-compatible, KRaft mode) |
 | **Object Storage** | S3 / MinIO |
 | **Search** | Elasticsearch 8 |
 | **VM Runtime** | Firecracker microVMs |
 | **Monorepo** | Turborepo + pnpm workspaces |
-| **Auth** | Keycloak (OAuth2/OIDC) |
+| **Auth** | Custom Auth Service (JWT + OAuth2) |
 | **Secrets** | HashiCorp Vault |
 
+# (Neon.tech + Upstash + redpanda for development and testing only)
 ---
 
 ## 2. Repository Structure
@@ -46,8 +50,8 @@ AI-Native-IDE/
 │   │   └── admin/               # Admin dashboard (Next.js)
 │   │
 │   ├── services/                # Backend microservices (TypeScript)
-│   │   ├── api-gateway/         # Kong + Fastify routing
-│   │   ├── auth-service/        # Keycloak wrapper
+│ │ ├── api-gateway/ # Fastify custom gateway
+│   │ ├── auth-service/ # Custom JWT auth service
 │   │   ├── project-service/     # Project CRUD, Git ops
 │   │   ├── ai-service/          # LangGraph orchestrator (TS wrapper)
 │   │   ├── execution-service/   # Firecracker VM management
@@ -112,7 +116,12 @@ AI-Native-IDE/
 # Install dependencies
 pnpm install
 
-# Start all infrastructure (PostgreSQL, Redis, Kafka, MinIO, Keycloak)
+# Option A: Cloud-backed dev (canonical)
+# Uses platform/.env (Neon + Upstash + Redpanda)
+pnpm dev
+
+# Option B: Local infra dev (Docker)
+# Uses platform/.env.docker
 pnpm docker:dev
 
 # Initialize database schema

@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** notification-service (Port 8007)  
-> **Tech Stack:** Node.js + Express + Redis Pub/Sub + AWS SES + Kafka
+> **Tech Stack:** Node.js + Fastify + Redis Pub/Sub + AWS SES + Redpanda (Kafka-compatible)
 
 ---
 
@@ -21,7 +21,7 @@ The Notification Service handles reliable, asynchronous delivery of system alert
 mkdir -p notification-service/src/{controllers,services,events,lib,config,middleware,workers}
 cd notification-service
 npm init -y
-npm install express aws-sdk ioredis @prisma/client kafkajs zod dotenv cors helmet bullmq
+npm install fastify @fastify/cors @fastify/helmet @aws-sdk/client-ses ioredis @prisma/client kafkajs zod dotenv bullmq
 npm install -D typescript @types/node ts-node prisma
 npx tsc --init
 ```
@@ -39,22 +39,22 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "aws-sdk": "^2.1500.0",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
+    "@aws-sdk/client-ses": "^3.478.0",
     "ioredis": "^5.3.2",
-    "@prisma/client": "^5.8.0",
+    "@prisma/client": "^5.10.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
     "bullmq": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -423,7 +423,7 @@ export const NotificationBatcher = {
 ### 5.1 Notification Controller (src/controllers/notification_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { PushService } from '../services/push_service';
 import { prisma } from '../lib/prisma';
 
@@ -781,40 +781,30 @@ model Notification {
 ### 9.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { NotificationController } from './controllers/notification_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'notification-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'notification-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Protected endpoints
-app.get('/api/v1/notifications', authMiddleware, NotificationController.list);
-app.put('/api/v1/notifications/:id/read', authMiddleware, NotificationController.markRead);
-app.put('/api/v1/notifications/read-all', authMiddleware, NotificationController.markAllRead);
-app.delete('/api/v1/notifications/:id', authMiddleware, NotificationController.delete);
-app.get('/api/v1/notifications/unread-count', authMiddleware, NotificationController.unreadCount);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.get('/api/v1/notifications', { preHandler: authMiddleware }, NotificationController.list);
+app.put('/api/v1/notifications/:id/read', { preHandler: authMiddleware }, NotificationController.markRead);
+app.put('/api/v1/notifications/read-all', { preHandler: authMiddleware }, NotificationController.markAllRead);
+app.delete('/api/v1/notifications/:id', { preHandler: authMiddleware }, NotificationController.delete);
+app.get('/api/v1/notifications/unread-count', { preHandler: authMiddleware }, NotificationController.unreadCount);
 
 export { app };
 ```

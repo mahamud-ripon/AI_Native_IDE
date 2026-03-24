@@ -26,39 +26,39 @@ const defaultOptions: CircuitBreakerOptions = {
   volumeThreshold: 10,           // Minimum 10 requests before checking health
 };
 
-// Store circuit breakers by service name
+// Map: serviceName -> CircuitBreaker wrapping the real proxy fn
 const circuitBreakers = new Map<string, CircuitBreaker<any>>();
 
 /**
- * Create or get a Circuit Breaker for a downstream service
+ * Create (or get) a circuit breaker that wraps a real async function.
+ * The function passed here is what gets protected.
  */
-export function getCircuitBreaker(serviceName: string, options?: Partial<CircuitBreakerOptions>): CircuitBreaker<any> {
+export function createServiceBreaker<T extends (...args: any[]) => Promise<any>>(
+  serviceName: string,
+  fn: T,
+  options?: Partial<CircuitBreakerOptions>
+): CircuitBreaker<T> {
   if (circuitBreakers.has(serviceName)) {
     return circuitBreakers.get(serviceName)!;
   }
 
-  // Create a dummy function that will be replaced by the actual proxy call
-  const breaker = new CircuitBreaker(async () => {}, {
+  // CORRECT: pass the real function to the constructor
+  const breaker = new CircuitBreaker(fn, {
     ...defaultOptions,
     ...options,
     name: serviceName,
   });
 
-  // Event listeners for monitoring
   breaker.on('open', () => {
-    console.error(`[CircuitBreaker] ${serviceName} is now OPEN (failing fast)`);
+    console.error(`[CB] ${serviceName} OPEN`);
   });
 
   breaker.on('halfOpen', () => {
-    console.warn(`[CircuitBreaker] ${serviceName} is HALF-OPEN (testing recovery)`);
+    console.warn(`[CB] ${serviceName} HALF-OPEN`);
   });
 
   breaker.on('close', () => {
-    console.info(`[CircuitBreaker] ${serviceName} is now CLOSED (healthy)`);
-  });
-
-  breaker.on('fallback', (result) => {
-    console.warn(`[CircuitBreaker] ${serviceName} fallback executed`, result);
+    console.info(`[CB] ${serviceName} CLOSED`);
   });
 
   circuitBreakers.set(serviceName, breaker);
@@ -105,24 +105,6 @@ export function getCircuitBreakerState(serviceName: string): {
 }
 
 /**
- * Wrap a proxy function with circuit breaker protection
- */
-export function wrapWithCircuitBreaker<T extends (...args: any[]) => any>(
-  serviceName: string,
-  fn: T,
-  options?: Partial<CircuitBreakerOptions>
-): CircuitBreaker<any> {
-  const breaker = getCircuitBreaker(serviceName, options);
-  
-  // Replace the fire function with our actual proxy function
-  (breaker as any).fire = async (...args: Parameters<T>): Promise<any> => {
-    return await fn(...args);
-  };
-
-  return breaker;
-}
-
-/**
  * Get health status for all circuit breakers
  */
 export function getAllCircuitBreakerStates(): Record<string, ReturnType<typeof getCircuitBreakerState>> {
@@ -131,4 +113,11 @@ export function getAllCircuitBreakerStates(): Record<string, ReturnType<typeof g
     states[name] = getCircuitBreakerState(name);
   }
   return states;
+}
+
+/**
+ * Get existing circuit breaker for a service (if created)
+ */
+export function getServiceBreaker(serviceName: string): CircuitBreaker<any> | undefined {
+  return circuitBreakers.get(serviceName);
 }

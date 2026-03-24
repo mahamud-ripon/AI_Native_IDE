@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** storage-service (Port 8009)  
-> **Tech Stack:** Node.js + Express + AWS SDK v3 + S3/MinIO + ClamAV
+> **Tech Stack:** Node.js + Fastify + AWS SDK v3 + S3/MinIO + ClamAV
 
 ---
 
@@ -21,7 +21,7 @@ The Storage Service is the centralized S3/MinIO proxy for the platform. ALL file
 mkdir -p storage-service/src/{controllers,services,middleware,events,lib,config}
 cd storage-service
 npm init -y
-npm install express @aws-sdk/client-s3 @aws-sdk/s3-request-presigner ioredis kafkajs zod dotenv cors helmet clamav.js
+npm install fastify @fastify/cors @fastify/helmet @aws-sdk/client-s3 @aws-sdk/s3-request-presigner ioredis kafkajs zod dotenv clamav.js
 npm install -D typescript @types/node ts-node
 npx tsc --init
 ```
@@ -39,15 +39,15 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
     "@aws-sdk/client-s3": "^3.478.0",
     "@aws-sdk/s3-request-presigner": "^3.478.0",
     "ioredis": "^5.3.2",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
     "clamav.js": "^0.12.0"
   },
   "devDependencies": {
@@ -564,7 +564,7 @@ export const PermissionService = {
 ### 9.1 Upload Controller (src/controllers/upload_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { PresignedUrlService } from '../services/presigned_url_service';
 import { z } from 'zod';
 
@@ -606,7 +606,7 @@ export const UploadController = {
 ### 9.2 Download Controller (src/controllers/download_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { PresignedUrlService } from '../services/presigned_url_service';
 import { z } from 'zod';
 
@@ -644,7 +644,7 @@ export const DownloadController = {
 ### 9.3 Admin Controller (src/controllers/admin_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { S3Service } from '../services/s3_client';
 import { OrphanCleaner } from '../services/orphan_cleaner';
 import { config } from '../config';
@@ -783,44 +783,34 @@ export const KafkaConsumer = {
 ### 11.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { UploadController } from './controllers/upload_controller';
 import { DownloadController } from './controllers/download_controller';
 import { AdminController } from './controllers/admin_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'storage-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'storage-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Storage endpoints
-app.post('/api/v1/storage/presign/upload', authMiddleware, UploadController.getPresignedUploadUrl);
-app.post('/api/v1/storage/presign/download', authMiddleware, DownloadController.getPresignedDownloadUrl);
-app.delete('/api/v1/storage/objects', authMiddleware, AdminController.deleteObjects);
+app.post('/api/v1/storage/presign/upload', { preHandler: authMiddleware }, UploadController.getPresignedUploadUrl);
+app.post('/api/v1/storage/presign/download', { preHandler: authMiddleware }, DownloadController.getPresignedDownloadUrl);
+app.delete('/api/v1/storage/objects', { preHandler: authMiddleware }, AdminController.deleteObjects);
 
 // Admin endpoints
-app.get('/api/v1/storage/stats', authMiddleware, AdminController.getStats);
-app.post('/api/v1/storage/cleanup', authMiddleware, AdminController.runCleanup);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.get('/api/v1/storage/stats', { preHandler: authMiddleware }, AdminController.getStats);
+app.post('/api/v1/storage/cleanup', { preHandler: authMiddleware }, AdminController.runCleanup);
 
 export { app };
 ```

@@ -8,6 +8,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import websocket from '@fastify/websocket';
 import { config } from './config.js';
 import { aiRoutes } from './routes/api.js';
 import { llmRoutes } from './routes/llm.js';
@@ -29,9 +30,12 @@ export async function build(): Promise<FastifyInstance> {
     origin: true,
   });
 
+  // Register WebSocket plugin before routes
+  await fastify.register(websocket);
+
   await fastify.register(aiRoutes, { prefix: '/ai' });
   await fastify.register(llmRoutes, { prefix: '/ai/llm' });
-  await registerWorkflowRoutes(fastify);
+  await fastify.register(registerWorkflowRoutes, { prefix: '/ai' });
 
   // Root health check
   fastify.get('/health', async () => ({ status: 'ok', service: 'ai-service' }));

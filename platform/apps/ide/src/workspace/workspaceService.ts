@@ -97,8 +97,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   };
 }
 
-import { ensureContainer } from '../core/runtime/webcontainerManager';
-
 class LocalWorkspaceService implements WorkspaceService {
   async listFiles(_projectId: string): Promise<WorkspaceFileEntry[]> {
     try {
@@ -200,21 +198,15 @@ class LocalWorkspaceService implements WorkspaceService {
   async getFileContent(_projectId: string, path: string): Promise<{ content: string; language?: string }> {
     try {
       // First, try to get from Monaco Editor models (fastest, always available)
-      // Use getOrCreate which always exists, but don't create if doesn't exist
-      let model: any;
-      try {
-        model = editorModelManager.getModel('', path);
-      } catch (e) {
-        // getModel might not exist, try alternative
-        model = null;
-      }
+      const key = editorModelManager.key('', path);
+      const fileModel = editorModelManager.get(key);
       
-      if (!model) {
+      if (!fileModel?.model) {
         // Model doesn't exist, try WebContainer
         throw new Error('Model not found');
       }
       
-      const content = model.getValue();
+      const content = fileModel.model.getValue();
       const ext = path.split('.').pop()?.toLowerCase();
       const languageMap: Record<string, string> = {
         'ts': 'typescript',
@@ -284,7 +276,7 @@ class LocalWorkspaceService implements WorkspaceService {
  */
 class RemoteWorkspaceService implements WorkspaceService {
   private getAuthHeaders(): HeadersInit {
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 

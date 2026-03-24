@@ -51,6 +51,7 @@ export function rateLimiterMiddleware(type: keyof typeof RATE_LIMITS = 'default'
           error: 'Rate limit exceeded',
           retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000),
         });
+        return;
       }
     } catch (error) {
       logger.error({ error }, 'Rate limiter error');

@@ -69,6 +69,30 @@ export async function mountDemoProject(projectId: string): Promise<void> {
   await wc.mount(tree);
 }
 
+/**
+ * Mount a real project's files into the WebContainer.
+ * Fetches file content from workspaceService and mounts the entire tree.
+ * Falls back to demo project if fetch fails.
+ */
+export async function mountProject(projectId: string): Promise<void> {
+  const wc = await ensureContainer();
+  
+  // Lazy import to avoid circular dependency
+  const { workspaceService } = await import('../../workspace/workspaceService');
+  
+  let snapshot: Record<string, string>;
+  
+  try {
+    snapshot = await workspaceService.getSnapshot(projectId);
+  } catch (err) {
+    console.warn('[WebContainer] Failed to load project snapshot, using demo:', err);
+    snapshot = (await import('../../workspace/workspaceService')).demoViteReactProjectFiles();
+  }
+  
+  const tree = buildFileTreeFromMap(snapshot);
+  await wc.mount(tree);
+}
+
 export async function ensureDependenciesInstalled(onOutput?: (data: string) => void): Promise<void> {
   if (installing) return;
   installing = true;
@@ -158,4 +182,57 @@ export function killShell(): void {
     }
     shellProcess = null;
   }
+}
+
+/**
+ * Write a single file into the running WebContainer filesystem.
+ * Creates parent directories automatically.
+ * Safe to call before boot — will wait for container to be ready.
+ */
+export async function writeFile(path: string, content: string): Promise<void> {
+  const wc = await ensureContainer();
+  
+  // Normalize path — WebContainer uses paths without leading slash
+  const wcPath = path.startsWith('/') ? path.slice(1) : path;
+  
+  // Ensure parent directory exists
+  const dir = wcPath.includes('/') ? wcPath.substring(0, wcPath.lastIndexOf('/')) : '';
+  if (dir) {
+    await wc.fs.mkdir(dir, { recursive: true }).catch(() => {
+      // Directory may already exist — that is fine
+    });
+  }
+  
+  await wc.fs.writeFile(wcPath, content, 'utf-8');
+}
+
+/**
+ * Write multiple files into the running WebContainer filesystem in parallel.
+ * Used for bulk AI-generated file application.
+ * 
+ * @param files - Record<path, content>
+ * @returns Array of results with success/failure per file
+ */
+export async function writeBatch(
+  files: Record<string, string>
+): Promise<Array<{ path: string; success: boolean; error?: string }>> {
+  const results = await Promise.allSettled(
+    Object.entries(files).map(async ([path, content]) => {
+      await writeFile(path, content);
+      return path;
+    })
+  );
+  
+  return results.map((result, index) => {
+    const path = Object.keys(files)[index];
+    if (result.status === 'fulfilled') {
+      return { path, success: true };
+    } else {
+      return {
+        path,
+        success: false,
+        error: result.reason instanceof Error ? result.reason.message : 'Unknown error',
+      };
+    }
+  });
 }

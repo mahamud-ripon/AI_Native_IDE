@@ -60,7 +60,11 @@ export const CollabController = {
         return;
       }
 
-      if (file.project.collaborators.length === 0) {
+      // Check if user is project owner OR a collaborator
+      const isOwner = file.project.ownerId === userId;
+      const isCollaborator = file.project.collaborators.length > 0;
+
+      if (!isOwner && !isCollaborator) {
         reply.code(403).send({ error: 'Access denied' });
         return;
       }

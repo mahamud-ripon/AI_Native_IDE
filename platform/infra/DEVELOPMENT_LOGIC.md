@@ -15,7 +15,7 @@ infra/
  │
  ├── k8s/                          # ☸️ Kubernetes Manifests & Helm Configs
  │    ├── helm-charts/             # Charts for all microservices
- │    ├── ingress/                 # Kong/Nginx configs (TLS, Rate Limits)
+│ ├── ingress/ # Nginx configs (TLS, Rate Limits)
  │    ├── service-mesh/            # Istio or Linkerd (Zero Trust networking)
  │    └── monitoring/              # Prometheus, Grafana, Loki stacks
  │

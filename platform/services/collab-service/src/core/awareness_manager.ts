@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import { redis, RedisKeys } from '../lib/redis.js';
 import { config } from '../config.js';
+import { YjsManager } from './yjs_manager.js';
 import type { User, UserPresence, CursorPosition } from '../lib/types.js';
 
 // Import awareness from y-protocols (CommonJS module)
@@ -28,13 +29,15 @@ function generateColor(userId: string): string {
 export const AwarenessManager = {
   /**
    * Get or create awareness for a file
+   * Uses the real Y.Doc from YjsManager to ensure proper synchronization
    */
-  getAwareness(fileId: string) {
+  async getAwareness(fileId: string) {
     if (awarenessInstances.has(fileId)) {
       return awarenessInstances.get(fileId)!;
     }
 
-    const ydoc = new Y.Doc();
+    // Get the actual Y.Doc from YjsManager - NOT a new isolated doc
+    const ydoc = await YjsManager.getYDoc(fileId);
     const awareness = new Awareness(ydoc);
     
     awareness.on('change', () => {
@@ -60,13 +63,13 @@ export const AwarenessManager = {
   /**
    * Set local user state (called when user joins or moves cursor)
    */
-  setLocalState(
+  async setLocalState(
     fileId: string,
     clientId: number,
     user: User,
     cursor?: CursorPosition
-  ): void {
-    const awareness = AwarenessManager.getAwareness(fileId);
+  ): Promise<void> {
+    const awareness = await AwarenessManager.getAwareness(fileId);
     const color = generateColor(user.id);
     
     awareness.setLocalState({
@@ -94,12 +97,12 @@ export const AwarenessManager = {
   /**
    * Update user cursor position
    */
-  updateCursor(
+  async updateCursor(
     fileId: string,
     clientId: number,
     cursor: CursorPosition
-  ): void {
-    const awareness = AwarenessManager.getAwareness(fileId);
+  ): Promise<void> {
+    const awareness = await AwarenessManager.getAwareness(fileId);
     const currentState = awareness.getLocalState();
     
     awareness.setLocalState({

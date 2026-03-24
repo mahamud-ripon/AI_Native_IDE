@@ -1,4 +1,5 @@
 import { Kafka, Producer, Admin, logLevel } from 'kafkajs';
+import { createKafkaClient } from '@workspace/config/kafka';
 import { config } from '../config';
 import { createLogger } from '../lib/logger';
 import { prisma } from '../lib/prisma';
@@ -40,16 +41,8 @@ class KafkaService {
 
   constructor() {
     if (config.kafka.enabled) {
-      this.kafka = new Kafka({
-        clientId: 'project-service',
-        brokers: config.kafka.brokers,
-        logLevel: config.nodeEnv === 'development' ? logLevel.DEBUG : logLevel.ERROR,
-        retry: {
-          initialRetryTime: 100,
-          retries: 8,
-          maxRetryTime: 30000,
-        },
-      });
+      // Use createKafkaClient for automatic SASL/SSL support
+      this.kafka = createKafkaClient({ clientId: 'project-service' });
       this.producer = this.kafka.producer();
       this.admin = this.kafka.admin();
       logger.info('Kafka service initialized', { brokers: config.kafka.brokers });

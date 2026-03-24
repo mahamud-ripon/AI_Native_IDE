@@ -52,8 +52,8 @@ interface IdeShellProps {
 // COMPONENT
 // ========================================
 
-export function IdeShell({ 
-  projectId, 
+export function IdeShell({
+  projectId,
   filePath,
   workspaceId = 'default-workspace',
   userId = 'default-user',
@@ -80,7 +80,7 @@ export function IdeShell({
     userId,
     autoConnect: true,
     autoSubscribeWorkspace: true,
-    mockMode: true, // Enable mock mode for frontend-only testing
+    mockMode: import.meta.env.VITE_MOCK_MODE === 'true', // Use env to toggle mock mode
   });
 
   const headerSubtitle = useMemo(() => {
@@ -99,20 +99,26 @@ export function IdeShell({
     // Only initialize once per session
     const initialized = sessionStorage.getItem('demo_files_initialized');
     if (initialized) return;
-    
+
     // Load demo files into Monaco Editor models
-    const files = demoViteReactProjectFiles();
-    Object.entries(files).forEach(([path, content]) => {
-      try {
-        editorModelManager.getOrCreate('', path, content);
-      } catch (e) {
-        console.debug('Failed to initialize demo file:', path, e);
-      }
-    });
-    
-    // Mark as initialized
-    sessionStorage.setItem('demo_files_initialized', 'true');
-    console.log('[IdeShell] Demo files initialized in Monaco Editor');
+    (async () => {
+      const Monaco = await import('monaco-editor');
+      const files = demoViteReactProjectFiles();
+      Object.entries(files).forEach(([path, content]) => {
+        try {
+          const fileModel = editorModelManager.getOrCreate(Monaco, '', path);
+          if (fileModel?.model) {
+            fileModel.model.setValue(content);
+          }
+        } catch (e) {
+          console.debug('Failed to initialize demo file:', path, e);
+        }
+      });
+
+      // Mark as initialized
+      sessionStorage.setItem('demo_files_initialized', 'true');
+      console.log('[IdeShell] Demo files initialized in Monaco Editor');
+    })();
   }, []);
 
   // Keyboard shortcuts
@@ -123,7 +129,7 @@ export function IdeShell({
         e.preventDefault();
         setCommandPaletteOpen(true);
       }
-      
+
       // Toggle AI panel: Ctrl/Cmd + Shift + A
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') {
         e.preventDefault();
@@ -135,7 +141,7 @@ export function IdeShell({
         }
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setCommandPaletteOpen, toggleSidebar, isSidebarOpen, sidebarTab]);
@@ -147,7 +153,7 @@ export function IdeShell({
         <div className={styles.brand}>AI-Native IDE</div>
         <div className={styles.subtitle}>{headerSubtitle}</div>
         <div className={styles.headerActions}>
-          <button 
+          <button
             className={`${styles.button} ${sidebarTab === 'ai' ? styles.buttonActive : ''}`}
             onClick={() => {
               if (isSidebarOpen && sidebarTab === 'ai') {
@@ -160,7 +166,7 @@ export function IdeShell({
           >
             🤖 AI
           </button>
-          <button 
+          <button
             className={`${styles.button} ${sidebarTab === 'files' ? styles.buttonActive : ''}`}
             onClick={() => {
               if (isSidebarOpen && sidebarTab === 'files') {
@@ -200,7 +206,7 @@ export function IdeShell({
                 📁
               </button>
             </div>
-            
+
             <div className={styles.sidebarContent}>
               {sidebarTab === 'ai' ? (
                 <AIChatPanel projectId={projectId} workspaceId={workspaceId} />

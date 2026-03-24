@@ -3,7 +3,7 @@
 > **Version:** 1.0  
 > **Date:** March 12, 2026  
 > **Service:** collab-service (Port 8005)  
-> **Tech Stack:** Node.js + Yjs + Redis + WebSocket Gateway
+> **Tech Stack:** Node.js + Fastify + Yjs + Redis + WebSocket Gateway
 
 ---
 
@@ -21,7 +21,7 @@ The Collab Service provides real-time, conflict-free document editing using Yjs 
 mkdir -p collab-service/src/{core,persistence,rpc,events,lib,config}
 cd collab-service
 npm init -y
-npm install yjs y-redis y-websocket ws ioredis @prisma/client kafkajs zod dotenv cors helmet
+npm install fastify @fastify/cors @fastify/helmet yjs y-redis y-websocket ws ioredis @prisma/client kafkajs zod dotenv
 npm install -D typescript @types/node @types/ws ts-node prisma
 npx tsc --init
 ```
@@ -39,24 +39,25 @@ npx tsc --init
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.1",
+    "@fastify/helmet": "^11.1.1",
     "yjs": "^13.6.0",
     "y-redis": "^1.0.0",
     "y-websocket": "^1.5.0",
     "ws": "^8.14.0",
     "ioredis": "^5.3.2",
-    "@prisma/client": "^5.8.0",
+    "@prisma/client": "^5.10.0",
     "kafkajs": "^2.2.4",
     "zod": "^3.22.4",
-    "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0"
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "@types/ws": "^8.5.10",
     "ts-node": "^10.9.2",
-    "prisma": "^5.8.0"
+    "prisma": "^5.10.0"
   }
 }
 ```
@@ -679,7 +680,7 @@ export const KafkaConsumer = {
 ### 8.1 Collab Controller (src/controllers/collab_controller.ts)
 
 ```typescript
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { YjsManager } from '../core/yjs_manager';
 import { AwarenessManager } from '../core/awareness_manager';
 import { PostgresSync } from '../persistence/postgres_sync';
@@ -891,41 +892,30 @@ model ProjectCollaborator {
 ### 10.1 App Setup (src/app.ts)
 
 ```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import { authMiddleware } from './middleware/auth';
 import { CollabController } from './controllers/collab_controller';
 
-const app = express();
+const app = Fastify({ logger: true });
 
-// Security middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+// Register plugins
+await app.register(helmet);
+await app.register(cors, { origin: true });
 
 // Health check
-app.get('/api/v1/health', (req: Request, res: Response) => {
-  res.json({ status: 'healthy', service: 'collab-service' });
-});
+app.get('/api/v1/health', async () => ({ status: 'healthy', service: 'collab-service' }));
 
-app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
-});
+app.get('/api/v1/health/circuit-breaker', async () => ({ status: 'closed', failures: 0 }));
 
 // Protected endpoints
-app.get('/api/v1/collab/files/:file_id', authMiddleware, CollabController.getFile);
-app.post('/api/v1/collab/join', authMiddleware, CollabController.joinCollab);
-app.post('/api/v1/collab/leave', authMiddleware, CollabController.leaveCollab);
-app.get('/api/v1/collab/documents', authMiddleware, CollabController.listDocuments);
-app.get('/api/v1/collab/presence/:file_id', authMiddleware, CollabController.getPresence);
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('[App] Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.get('/api/v1/collab/files/:file_id', { preHandler: authMiddleware }, CollabController.getFile);
+app.post('/api/v1/collab/join', { preHandler: authMiddleware }, CollabController.joinCollab);
+app.post('/api/v1/collab/leave', { preHandler: authMiddleware }, CollabController.leaveCollab);
+app.get('/api/v1/collab/documents', { preHandler: authMiddleware }, CollabController.listDocuments);
+app.get('/api/v1/collab/presence/:file_id', { preHandler: authMiddleware }, CollabController.getPresence);
 
 export { app };
 ```

@@ -1,5 +1,5 @@
-import dotenv from 'dotenv';
-dotenv.config();
+// Validate environment variables at startup
+import '@workspace/config/env';
 
 import { app, server } from './app.js';
 import { config } from './config/index.js';
@@ -12,14 +12,31 @@ import { KafkaPublisher } from './events/kafka_publisher.js';
 async function main() {
   console.log('[Execution] Starting service...');
 
-  await redis.connect();
-  await KafkaPublisher.connect();
+  try {
+    await redis.connect();
+  } catch (err) {
+    console.warn('[Execution] Redis connection failed, continuing without Redis:', err);
+  }
+
+  try {
+    await KafkaPublisher.connect();
+  } catch (err) {
+    console.warn('[Execution] Kafka connection failed, continuing without Kafka:', err);
+  }
 
   // Start VM prewarmer
-  Prewarmer.start();
+  try {
+    Prewarmer.start();
+  } catch (err) {
+    console.warn('[Execution] Prewarmer failed to start:', err);
+  }
 
   // Start file sync
-  FileSync.start();
+  try {
+    FileSync.start();
+  } catch (err) {
+    console.warn('[Execution] FileSync failed to start:', err);
+  }
 
   server.listen(config.port, () => {
     console.log(`[Execution] Service running on port ${config.port}`);

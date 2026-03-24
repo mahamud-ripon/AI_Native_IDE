@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { config } from '../config';
 import { createLogger } from '../lib/logger';
+import { JwtVerifier } from '../lib/jwt';
 
 const logger = createLogger('auth-middleware');
 
@@ -26,6 +27,13 @@ export async function authMiddleware(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
+  logger.info('Auth middleware called', {
+    path: request.url,
+    method: request.method,
+    hasAuthHeader: !!request.headers.authorization,
+    authHeaderPrefix: request.headers.authorization?.substring(0, 20),
+  });
+
   const authHeader = request.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -44,9 +52,7 @@ export async function authMiddleware(
   const token = authHeader.substring(7);
 
   try {
-    // In production, use proper JWT verification with the shared secret
-    // For now, we'll decode and validate the token structure
-    const payload = decodeJwtToken(token);
+    const payload = JwtVerifier.verifyAccessToken(token);
 
     if (!payload || !payload.sub) {
       throw new Error('Invalid token payload');
@@ -57,7 +63,7 @@ export async function authMiddleware(
       throw new Error('Token expired');
     }
 
-    request.user = payload;
+    request.user = payload as JwtPayload;
     logger.debug('User authenticated', { userId: payload.sub, path: request.url });
   } catch (error) {
     logger.warn('JWT validation failed', {
@@ -130,6 +136,19 @@ function decodeJwtToken(token: string): JwtPayload | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Mixed API key / JWT authentication middleware
+ */
+export async function mixedAuthMiddleware(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (request.headers['x-internal-api-key']) {
+    return internalAuthMiddleware(request, reply);
+  }
+  return authMiddleware(request, reply);
 }
 
 /**

@@ -14,8 +14,12 @@ export async function authRoutes(app: FastifyInstance) {
     try {
       const data = RegisterSchema.parse(request.body);
 
-      // Check existence
-      const existing = await prisma.user.findUnique({ where: { email: data.email, username: data.username } });
+      // Check existence - use findFirst with OR for email OR username
+      const existing = await prisma.user.findFirst({
+        where: {
+          OR: [{ email: data.email }, { username: data.username }]
+        }
+      });
       if (existing) {
         return reply.status(409).send({ success: false, error: 'Email or username already exists' });
       }
@@ -28,17 +32,17 @@ export async function authRoutes(app: FastifyInstance) {
         data: {
           email: data.email,
           username: data.username,
-          password_hash: hashedPassword,
+          hashedPassword: hashedPassword,
         }
       });
 
       // Audit Log
-      await prisma.audit_log.create({
+      await prisma.auditLog.create({
         data: {
-          user_id: newUser.id,
+          userId: newUser.id,
           action: 'user.registered',
-          ip_address: request.ip,
-          user_agent: request.headers['user-agent'] || 'unknown',
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'] || 'unknown',
           timestamp: new Date()
         }
       });
@@ -73,24 +77,30 @@ export async function authRoutes(app: FastifyInstance) {
     try {
       const data = LoginSchema.parse(request.body);
 
-      const user = await prisma.user.findUnique({
-        where: { email: data.email_or_username, username: data.email_or_username }
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: data.email_or_username },
+            { username: data.email_or_username }
+          ],
+          deletedAt: null
+        }
       });
 
       if (!user) {
         return reply.status(401).send({ success: false, error: 'Invalid credentials' });
       }
 
-      const isValid = await argon2.verify(user.password_hash, data.password);
+      const isValid = await argon2.verify(user.hashedPassword || '', data.password);
       if (!isValid) {
-        await prisma.audit_log.create({
-          data: { user_id: user.id, action: 'login.failed', ip_address: request.ip, timestamp: new Date() }
+        await prisma.auditLog.create({
+          data: { userId: user.id, action: 'login.failed', ipAddress: request.ip, timestamp: new Date() }
         });
         return reply.status(401).send({ success: false, error: 'Invalid credentials' });
       }
 
       // MFA Defense Check
-      if (user.mfa_enabled) {
+      if (user.mfaEnabled) {
         const tempToken = crypto.randomBytes(32).toString('hex');
         return reply.status(202).send({ mfaRequired: true, mfaToken: tempToken });
       }
@@ -99,8 +109,8 @@ export async function authRoutes(app: FastifyInstance) {
       const accessToken = JwtService.issueAccessToken(user);
       const refreshToken = await SessionService.issueRefreshToken(user.id, request.ip, request.headers['user-agent'] || 'unknown');
 
-      await prisma.audit_log.create({
-        data: { user_id: user.id, action: 'login.success', ip_address: request.ip, timestamp: new Date() }
+      await prisma.auditLog.create({
+        data: { userId: user.id, action: 'login.success', ipAddress: request.ip, timestamp: new Date() }
       });
 
       reply.setCookie('refreshToken', refreshToken, {
@@ -131,10 +141,18 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.status(403).send({ success: false, error: 'Invalid or revoked session. Please log in again.' });
       }
 
-      // Assuming we don't fetch full user on refresh for performance.. Ideally parse DB for user record fast
-      // Mock user for issuance here
-      const mockUserRecord = { id: 'hydrated_uuid', role: 'user', email: 'verified@user.com' };
-      const accessToken = JwtService.issueAccessToken(mockUserRecord);
+      // Fetch the real user from the refresh token's user_id
+      const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+      const tokenRecord = await prisma.refreshToken.findFirst({
+        where: { tokenHash: hashedToken },
+        include: { user: true }
+      });
+
+      if (!tokenRecord || !tokenRecord.user) {
+        return reply.status(403).send({ success: false, error: 'User not found. Please log in again.' });
+      }
+
+      const accessToken = JwtService.issueAccessToken(tokenRecord.user);
 
       reply.setCookie('refreshToken', nextRefreshToken, {
         httpOnly: true,
@@ -155,11 +173,11 @@ export async function authRoutes(app: FastifyInstance) {
       const plainToken = request.cookies['refreshToken'];
       if (plainToken) {
         const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
-        const record = await prisma.refresh_token.findFirst({ where: { token: hashedToken } });
+        const record = await prisma.refreshToken.findFirst({ where: { tokenHash: hashedToken } });
         if (record) {
-          await prisma.refresh_token.update({ where: { id: record.id }, data: { is_revoked: true } });
+          await prisma.refreshToken.update({ where: { id: record.id }, data: { isRevoked: true } });
           // Kick active WebSockets
-          await KafkaPublisher.publish('user.sessions_revoked', { userId: record.user_id });
+          await KafkaPublisher.publish('user.sessions_revoked', { userId: record.userId });
         }
       }
 

@@ -41,7 +41,13 @@ export const ProjectIndexer = {
 
       logger.info({ projectId: project.id, name: project.name }, 'Project indexed');
     } catch (error) {
-      logger.error({ error, projectId: project.id }, 'Failed to index project');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      logger.error({ 
+        error: errorMessage, 
+        stack: errorStack, 
+        projectId: project.id 
+      }, 'Failed to index project');
       throw error;
     }
   },

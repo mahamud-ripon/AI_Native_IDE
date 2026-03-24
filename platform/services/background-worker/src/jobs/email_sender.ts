@@ -200,8 +200,8 @@ async function sendEmail({ to, subject, html }: { to: string; subject: string; h
   // await transporter.sendMail({ from: SMTP_CONFIG.from, to, subject, html });
 }
 
+import crypto from 'crypto';
+
 function generateToken(): string {
-  return Array.from({ length: 32 }, () => 
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 62)]
-  ).join('');
+  return crypto.randomBytes(32).toString('hex');
 }

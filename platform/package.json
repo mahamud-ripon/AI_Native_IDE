@@ -10,12 +10,12 @@
   ],
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev --concurrency=20",
-    "dev:all": "turbo dev --concurrency=20",
-    "start": "turbo dev --concurrency=20",
+    "dev": "dotenv -e .env -- turbo dev --concurrency=20",
+    "dev:all": "dotenv -e .env -- turbo dev --concurrency=20",
+    "start": "dotenv -e .env -- turbo dev --concurrency=20",
     "start:all": "echo Starting all services... && pnpm dev",
     "start:services": "pnpm dev",
-    "start:ai-agents": "cd ai-agents && python -m uvicorn src.api.main:app --reload --port 8000",
+    "start:ai-agents": "cd ai-agents && python -m uvicorn src.api.main:app --reload --port 9000",
     "lint": "turbo lint",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "dotenv-cli": "^7.3.0",
     "prettier": "^3.2.0",
     "turbo": "^2.0.0",
     "typescript": "^5.3.0"

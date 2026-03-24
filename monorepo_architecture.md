@@ -14,16 +14,13 @@
 
 ```text
 ai-native-ide/
-├── apps/                   # 🖥️ Client-facing Applications (Frontend)
-├── services/               # ⚙️ Backend Microservices (APIs & Workers)
-├── packages/               # 📦 Shared Libraries & Internal Modules
-├── ai-agents/              # 🧠 LangGraph & AI Orchestration Logic
-├── infra/                  # ☁️ Infrastructure as Code (Terraform, K8s, VM)
-├── scripts/                # 🛠️ CI/CD & Dev Tooling Scripts
-├── turbo.json              # 🚀 Turborepo Build Pipeline Config
-├── package.json            # 📦 Root Package (pnpm workspaces limit)
-├── docker-compose.yml      # 🐳 Local Dev Environment Orchestration
-└── README.md               # 📖 Master Documentation
+├── platform/               # Monorepo root (apps/, services/, packages/, infra/, scripts/)
+├── AI_CONTEXT.md
+├── AI_Native_IDE_System_Design.md
+├── ARCHITECTURE_STANDARDS.md
+├── DATABASE_MIGRATION_STRATEGY.md
+├── KAFKA_EVENT_CONTRACTS.md
+└── monorepo_architecture.md
 ```
 
 ---
@@ -56,13 +53,13 @@ apps/
 
 ## 🔍 Detailed Breakdown: The "services" Directory
 
-সবগুলো ৯টি Microservices এখানে থাকবে। প্রতিটা service independently deploy হবে।
+সবগুলো Microservices এখানে থাকবে। প্রতিটা service independently deploy হবে।
 
 ```text
 services/
-├── api-gateway/                   # 🚪 Kong API Configs / Fastify Custom Gateway
+├── api-gateway/ # 🚪 Fastify Custom Gateway
 │
-├── auth-service/                  # 🔐 Keycloak Custom Themes or Wrapper API
+├── auth-service/ # 🔐 Custom JWT Auth Service
 │
 ├── project-service/               # 📁 CRUD, Git Ops, File Sync (Node.js/TypeScript)
 │   ├── src/routes/
@@ -164,7 +161,7 @@ infra/
 │
 ├── k8s/                           # ☸️ Kubernetes Manifests
 │   ├── helm-charts/               # Our microservices charts
-│   ├── ingress/                   # Nginx/Kong Ingress configurations
+│ ├── ingress/ # Nginx Ingress configurations
 │   └── monitoring/                # Prometheus, Grafana, Loki stacks
 │
 └── firecracker/                   # 🔥 VM Runtime Configs

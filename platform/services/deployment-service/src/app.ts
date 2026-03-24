@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction, Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { authMiddleware } from './middleware/auth.js';
@@ -7,10 +7,15 @@ import { HistoryController } from './controllers/history_controller.js';
 import { RollbackController } from './controllers/rollback_controller.js';
 import { DomainController } from './controllers/domain_controller.js';
 
-const app = express();
+const app: Application = express();
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://platform.io', /^https:\/\/.*\.platform\.io$/]
+    : true,
+  credentials: true,
+}));
 app.use(express.json());
 
 // Health check

@@ -1,6 +1,24 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+interface KafkaConfig {
+  brokers: string[];
+  groupId: string;
+  enabled: boolean;
+  username?: string;
+  password?: string;
+  saslMechanism: string;
+}
+
+const kafkaConfig: KafkaConfig = {
+  brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
+  groupId: process.env.KAFKA_GROUP_ID || 'project-service',
+  enabled: process.env.KAFKA_ENABLED !== 'false',
+  username: process.env.KAFKA_USERNAME,
+  password: process.env.KAFKA_PASSWORD,
+  saslMechanism: process.env.KAFKA_SASL_MECHANISM || 'scram-sha-256',
+};
+
 export const config = {
   port: parseInt(process.env.PORT || '8002', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -9,11 +27,7 @@ export const config = {
     url: process.env.DATABASE_URL!,
   },
 
-  kafka: {
-    brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
-    groupId: process.env.KAFKA_GROUP_ID || 'project-service',
-    enabled: process.env.KAFKA_ENABLED !== 'false',
-  },
+  kafka: kafkaConfig,
 
   s3: {
     bucket: process.env.S3_BUCKET || 'project-files',
@@ -45,6 +59,6 @@ export const config = {
     // Always use S3 - no inline storage per DEVELOPMENT_LOGIC.md Priority 1.1
     alwaysUseS3: true,
   },
-} as const;
+};
 
 export type Config = typeof config;
