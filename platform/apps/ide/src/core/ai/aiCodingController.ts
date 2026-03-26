@@ -30,6 +30,23 @@ import { aiDecorations } from '../editor/aiDecorations';
 import { patchValidator, ValidationResult } from '../editor/patchValidator';
 import { useExecutionStore } from '../../state/executionStore';
 import { useAIChatStore } from '../../state/aiChatStore';
+import { useIDEStore, FileNode } from '../../stores/ideStore';
+import { logger } from '../../lib/logger';
+
+// ========================================
+// HELPERS
+// ========================================
+
+/** Flatten FileNode tree to list of file paths */
+function flattenFileTree(nodes: FileNode[]): string[] {
+  const paths: string[] = [];
+  const walk = (n: FileNode) => {
+    if (n.type === 'file') paths.push(n.path);
+    if (n.children) n.children.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return paths;
+}
 
 // ========================================
 // TYPES
@@ -155,7 +172,7 @@ class AICodingController {
       }
     });
 
-    console.log(`[AICodingController] State transition: ${currentState} -> ${newState}${reason ? ` (${reason})` : ''}`);
+    logger.debug(`[AICodingController] State transition: ${currentState} -> ${newState}${reason ? ` (${reason})` : ''}`);
     return true;
   }
 
@@ -309,7 +326,7 @@ class AICodingController {
     // Check if session already exists for this task
     for (const session of this.sessions.values()) {
       if (session.taskId === taskId) {
-        console.log(`[AICodingController] Session already exists for task ${taskId}`);
+        logger.debug(`[AICodingController] Session already exists for task ${taskId}`);
         return session;
       }
     }
@@ -346,7 +363,7 @@ class AICodingController {
     // Restore decorations for modified files
     await this.restoreDecorations(session, task.filesModified);
 
-    console.log(`[AICodingController] Restored session ${id} for task ${taskId}, state: ${workflowState}`);
+    logger.debug(`[AICodingController] Restored session ${id} for task ${taskId}, state: ${workflowState}`);
 
     return session;
   }
@@ -405,7 +422,7 @@ class AICodingController {
       // Check for any running tasks
       for (const [taskId, task] of store.tasks) {
         if (task.status === 'running' || task.status === 'queued') {
-          console.log(`[AICodingController] Found running task ${taskId} to recover`);
+          logger.debug(`[AICodingController] Found running task ${taskId} to recover`);
           return this.restoreSession(taskId);
         }
       }
@@ -444,7 +461,7 @@ class AICodingController {
   /**
    * Submit an AI coding task
    */
-  async submitTask(options: SubmitTaskOptions): Promise<string> {
+  async submitTask(options: SubmitTaskOptions): Promise<string | null> {
     const session = this.getActiveSession();
     if (!session) {
       throw new Error('No active session. Create a session first.');
@@ -475,7 +492,21 @@ class AICodingController {
       // Submit to execution API
       const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
       const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
-      
+
+      // Build chat history from conversation for AI context
+      const chatState = useAIChatStore.getState();
+      const conversation = chatState.getConversation(session.conversationId);
+      const chatHistory = conversation?.messages
+        .filter(m => (m.role === 'user' || m.role === 'assistant'))
+        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })) ?? [];
+
+      // Build workspace context from IDE state
+      const ideState = useIDEStore.getState();
+      const fileTree = flattenFileTree(ideState.fileTree);
+      const activeFile = ideState.activeTabPath;
+      const activeFileContent = activeFile ? ideState.fileContents.get(activeFile) ?? null : null;
+      const openTabs = ideState.openTabs.map(t => t.path);
+
       const response = await fetch(`${API_BASE}/api/v1/ai/execution/tasks`, {
         method: 'POST',
         headers: { 
@@ -486,6 +517,13 @@ class AICodingController {
           projectId: options.projectId,
           workspaceId: options.workspaceId,
           instruction: options.instruction,
+          chatHistory,
+          workspaceContext: {
+            fileTree,
+            activeFile,
+            activeFileContent: activeFileContent?.slice(0, 8000),
+            openTabs,
+          },
           metadata: {
             agent: 'ai-coding-controller',
             conversationId: session.conversationId,
@@ -501,6 +539,20 @@ class AICodingController {
       const data = await response.json();
       const taskId = data.taskId;
 
+      // Check if the server classified this as CHITCHAT (chat response, not a task)
+      if (data.type === 'chat') {
+        // Display chat response directly — no polling needed
+        useAIChatStore.getState().addMessage(session.conversationId, {
+          role: 'assistant',
+          content: data.message || 'No response received from the AI service.',
+          status: data.status === 'error' ? 'error' : 'complete',
+        });
+        useAIChatStore.getState().setIsSending(false);
+        this.forceState(session.id, 'COMPLETED', 'chat response');
+        return null;
+      }
+
+      // WORKFLOW response — update session and start polling
       // Update session
       session.taskId = taskId;
 
@@ -611,7 +663,7 @@ class AICodingController {
       // Stop if session is already in terminal state
       const currentSession = this.sessions.get(sessionId);
       if (!currentSession || currentSession.workflowState === 'COMPLETED' || currentSession.workflowState === 'FAILED') {
-        console.log(`[AICodingController] Poll stopped: session ${sessionId} in terminal state ${currentSession?.workflowState}`);
+        logger.debug(`[AICodingController] Poll stopped: session ${sessionId} in terminal state ${currentSession?.workflowState}`);
         return;
       }
 
@@ -657,7 +709,7 @@ class AICodingController {
           typeof data.patchesApplied === 'number' ? data.patchesApplied : 0;
         const stageMessage: string = data.stageMessage ?? data.stage ?? '';
 
-        console.log(`[AICodingController] Poll #${pollCount} task ${taskId}: status=${status}, stage=${data.currentStage}`);
+        logger.debug(`[AICodingController] Poll #${pollCount} task ${taskId}: status=${status}, stage=${data.currentStage}`);
 
         // Accept both 'completed' status AND 'completed' stage as terminal
         const isCompleted = status === 'completed' || data.currentStage === 'completed';

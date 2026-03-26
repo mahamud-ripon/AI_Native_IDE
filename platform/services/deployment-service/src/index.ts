@@ -27,4 +27,19 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+process.on('SIGINT', async () => {
+  console.log('[Deployment] SIGINT received, shutting down...');
+  await disconnectPrisma();
+  process.exit(0);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Deployment] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Deployment] Uncaught Exception:', error);
+  process.exit(1);
+});
+
 main().catch(console.error);

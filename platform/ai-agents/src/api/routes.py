@@ -141,9 +141,11 @@ async def execute_workflow_stream(request: WorkflowRequest):
 
                 # Check if workflow is done
                 if workflow_task.done():
-                    # Drain remaining events
-                    async for remaining_event in emitter.subscribe():
-                        yield remaining_event.to_sse()
+                    # Wait for task to fully complete (propagates exceptions)
+                    try:
+                        await workflow_task
+                    except Exception:
+                        pass
                     break
 
         except Exception as e:

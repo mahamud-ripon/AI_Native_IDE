@@ -8,6 +8,6 @@ export const config = {
   kafkaBrokers: env.KAFKA_BROKERS,
   kafkaGroupId: process.env.KAFKA_GROUP_ID || 'analytics-service',
   featureFlagTTL: parseInt(process.env.FEATURE_FLAG_TTL || '300'),
-  internalApiKey: process.env.INTERNAL_API_KEY || '',
-  adminApiKey: process.env.ADMIN_API_KEY || '',
+  internalApiKey: process.env.INTERNAL_API_KEY || (() => { throw new Error('INTERNAL_API_KEY env var is required'); })(),
+  adminApiKey: process.env.ADMIN_API_KEY || (() => { throw new Error('ADMIN_API_KEY env var is required'); })(),
 };

@@ -47,4 +47,20 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+process.on('SIGINT', async () => {
+  await fastify.close();
+  await KafkaConsumer.stop();
+  await disconnectRedis();
+  process.exit(0);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[analytics-service] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[analytics-service] Uncaught Exception:', error);
+  process.exit(1);
+});
+
 start();

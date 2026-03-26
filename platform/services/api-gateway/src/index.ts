@@ -25,3 +25,12 @@ const startServer = async () => {
 
 startServer();
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[api-gateway] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[api-gateway] Uncaught Exception:', error);
+  process.exit(1);
+});
+

@@ -21,14 +21,14 @@ export async function routes(fastify: FastifyInstance): Promise<void> {
   fastify.put('/api/v1/projects/:id', { preHandler: authMiddleware }, projectController.updateProject);
   fastify.delete('/api/v1/projects/:id', { preHandler: authMiddleware }, projectController.deleteProject);
 
-  // File routes
-  fastify.get('/api/v1/projects/:id/tree', { preHandler: authMiddleware }, fileController.getFileTree);
-  fastify.get('/api/v1/projects/:id/files/:fileId', { preHandler: authMiddleware }, fileController.getFile);
-  fastify.get('/api/v1/projects/:id/files/content', { preHandler: authMiddleware }, fileController.getFileContent);
-  fastify.post('/api/v1/projects/:id/files', { preHandler: authMiddleware }, fileController.createFile);
-  fastify.put('/api/v1/projects/:id/files/:fileId', { preHandler: authMiddleware }, fileController.updateFile);
-  fastify.delete('/api/v1/projects/:id/files/:fileId', { preHandler: authMiddleware }, fileController.deleteFile);
-  fastify.put('/api/v1/projects/:id/files/:fileId/move', { preHandler: authMiddleware }, fileController.moveFile);
+  // File routes (mixed auth: JWT for users, internal API key for services)
+  fastify.get('/api/v1/projects/:id/tree', { preHandler: mixedAuthMiddleware }, fileController.getFileTree);
+  fastify.get('/api/v1/projects/:id/files/:fileId', { preHandler: mixedAuthMiddleware }, fileController.getFile);
+  fastify.get('/api/v1/projects/:id/files/content', { preHandler: mixedAuthMiddleware }, fileController.getFileContent);
+  fastify.post('/api/v1/projects/:id/files', { preHandler: mixedAuthMiddleware }, fileController.createFile);
+  fastify.put('/api/v1/projects/:id/files/:fileId', { preHandler: mixedAuthMiddleware }, fileController.updateFile);
+  fastify.delete('/api/v1/projects/:id/files/:fileId', { preHandler: mixedAuthMiddleware }, fileController.deleteFile);
+  fastify.put('/api/v1/projects/:id/files/:fileId/move', { preHandler: mixedAuthMiddleware }, fileController.moveFile);
   
   fastify.post('/api/v1/projects/:id/files/sync', { preHandler: mixedAuthMiddleware }, fileController.syncFiles);
 

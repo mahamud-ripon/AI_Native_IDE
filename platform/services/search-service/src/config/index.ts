@@ -59,11 +59,11 @@ export const config = {
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-super-secret-key-change-in-production',
+    secret: process.env.JWT_SECRET || (() => { throw new Error('JWT_SECRET env var is required'); })(),
     publicKey: process.env.JWT_PUBLIC_KEY || '',
   },
 
-  internalApiKey: process.env.INTERNAL_API_KEY || 'internal-api-key',
+  internalApiKey: process.env.INTERNAL_API_KEY || (() => { throw new Error('INTERNAL_API_KEY env var is required'); })(),
 
   search: {
     maxResults: 50,

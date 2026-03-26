@@ -753,6 +753,7 @@ model Deployment {
   deployedAt     DateTime?       @map("deployed_at") @db.Timestamptz()
 
   @@index([projectId])
+  @@index([userId])
   @@map("deployments")
 }
 
@@ -1100,6 +1101,8 @@ model ExecutionTask {
   snapshotId      String?               @map("snapshot_id") @db.VarChar(100)
   rollbackPerformed Boolean             @default(false) @map("rollback_performed")
 
+  events          ExecutionTaskEvent[]
+
   @@index([projectId])
   @@index([workspaceId])
   @@index([status])
@@ -1114,6 +1117,7 @@ model ExecutionTask {
 model ExecutionTaskEvent {
   id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   taskId          String              @map("task_id") @db.Uuid
+  task            ExecutionTask       @relation(fields: [taskId], references: [id], onDelete: Cascade)
   
   // Ordering guarantee
   sequence        Int

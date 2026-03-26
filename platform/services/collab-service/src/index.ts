@@ -91,6 +91,15 @@ async function gracefulShutdown(signal: string) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[Collab] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Collab] Uncaught Exception:', error);
+  process.exit(1);
+});
+
 main().catch((error) => {
   console.error('[Collab] Startup error:', error);
   process.exit(1);

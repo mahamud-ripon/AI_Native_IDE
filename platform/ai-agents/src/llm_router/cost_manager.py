@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -137,7 +137,7 @@ class CostManager:
         self,
         tier: LLM_TIER,
         messages: List[Dict[str, Any]],
-        on_token: Optional[callable] = None,
+        on_token: Optional[Callable] = None,
     ) -> tuple[str, Dict[str, Any]]:
         """Stream LLM response token by token.
         

@@ -4,6 +4,7 @@ import { circuitBreaker } from '../middleware/circuit_breaker.js';
 import { maskSecrets, rehydrateSecrets } from '../middleware/data_masking.js';
 import { emitBillingEvent } from '../kafka/billing.js';
 import { prisma } from '@workspace/database';
+import { getLLMGateway } from '../llm/gateway.js';
 
 interface ExecuteBody {
   projectId: string;
@@ -12,6 +13,102 @@ interface ExecuteBody {
     files?: string[];
     schema?: Record<string, unknown>;
   };
+}
+
+type Intent = 'CHITCHAT' | 'WORKFLOW';
+
+/**
+ * Server-side intent classification using LLM Gateway (fast model).
+ * Uses Groq Llama-3 for ~50ms classification.
+ */
+async function classifyIntent(prompt: string): Promise<Intent> {
+  try {
+    const gateway = await getLLMGateway();
+    const response = await gateway.complete({
+      workflowId: 'intent-classifier',
+      projectId: 'system',
+      agentName: 'classifier',
+      stepName: 'classify',
+      taskType: 'chat',
+      messages: [
+        {
+          role: 'system',
+          content: `Classify the user's message into exactly one category.
+
+CHITCHAT: greetings, questions about the system, explanations, small talk, "hello", "how are you", "what can you do", "thanks", help requests, general questions
+WORKFLOW: requests to create, build, generate, modify, fix, deploy, or run code, files, or projects
+
+Reply with EXACTLY one word: CHITCHAT or WORKFLOW`,
+        },
+        { role: 'user', content: prompt },
+      ],
+      maxTokens: 10,
+    });
+    const result = response.outputText.trim().toUpperCase();
+    return result.includes('WORKFLOW') ? 'WORKFLOW' : 'CHITCHAT';
+  } catch {
+    // If classification fails, default to WORKFLOW (safer — let ai-agents handle it)
+    return 'WORKFLOW';
+  }
+}
+
+/**
+ * Stream a chat response directly from the LLM Gateway.
+ */
+async function streamChatResponse(
+  prompt: string,
+  taskId: string,
+  userId: string,
+  projectId: string,
+  reply: FastifyReply
+): Promise<void> {
+  const gateway = await getLLMGateway();
+  const startTime = Date.now();
+  let tokenCount = 0;
+
+  for await (const chunk of gateway.stream({
+    workflowId: taskId,
+    projectId,
+    agentName: 'chat',
+    stepName: 'respond',
+    taskType: 'chat',
+    messages: [
+      {
+        role: 'system',
+        content: `You are Bolt, a helpful AI coding assistant integrated into a cloud IDE.
+You help users with coding questions, explanations, and building software.
+Be concise, friendly, and helpful. Use markdown formatting for code blocks.
+If the user asks you to build something complex, suggest they use the build pipeline.`,
+      },
+      { role: 'user', content: prompt },
+    ],
+    maxTokens: 2048,
+    userId,
+  })) {
+    if (chunk.type === 'chunk') {
+      reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'chat', data: chunk.data.textDelta })}\n\n`);
+      tokenCount += chunk.data.textDelta.split(/\s+/).length;
+    }
+    if (chunk.type === 'error') {
+      reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'chat', status: 'failed', error: chunk.data.message })}\n\n`);
+      reply.raw.end();
+      return;
+    }
+  }
+
+  const duration = Date.now() - startTime;
+
+  await emitBillingEvent({
+    taskId,
+    userId,
+    projectId,
+    tokenCount,
+    duration,
+    status: 'completed',
+  });
+
+  reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'chat', status: 'completed' })}\n\n`);
+  reply.raw.end();
 }
 
 export async function executeTask(
@@ -31,7 +128,25 @@ export async function executeTask(
   }
 
   const maskedPrompt = maskSecrets(prompt);
+  const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+  // Set up SSE stream
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  // Classify intent using fast LLM
+  const intent = await classifyIntent(maskedPrompt);
+
+  // CHITCHAT → stream chat response directly from ai-service
+  if (intent === 'CHITCHAT') {
+    await streamChatResponse(maskedPrompt, taskId, userId, projectId, reply);
+    return;
+  }
+
+  // WORKFLOW → forward to ai-agents pipeline
   const aiRequest: AIRequest = {
     projectId,
     userId,
@@ -39,22 +154,14 @@ export async function executeTask(
     context,
   };
 
-  const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
   try {
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-
     const startTime = Date.now();
     let tokenCount = 0;
 
     for await (const chunk of circuitBreaker.executeGenerator(() => aiAgentsClient.streamTask(aiRequest))) {
       const rehydratedChunk = rehydrateSecrets(chunk);
       
-      reply.raw.write(`data: ${JSON.stringify({ id: taskId, data: rehydratedChunk })}\n\n`);
+      reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'workflow', data: rehydratedChunk })}\n\n`);
       
       tokenCount += chunk.split(/\s+/).length;
     }
@@ -70,7 +177,7 @@ export async function executeTask(
       status: 'completed',
     });
 
-    reply.raw.write(`data: ${JSON.stringify({ id: taskId, status: 'completed' })}\n\n`);
+    reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'workflow', status: 'completed' })}\n\n`);
     reply.raw.end();
 
   } catch (error: any) {
@@ -84,7 +191,7 @@ export async function executeTask(
       error: error.message,
     });
 
-    reply.raw.write(`data: ${JSON.stringify({ id: taskId, status: 'failed', error: error.message })}\n\n`);
+    reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'workflow', status: 'failed', error: error.message })}\n\n`);
     reply.raw.end();
   }
 }

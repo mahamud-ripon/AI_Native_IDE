@@ -120,9 +120,9 @@ class JailbreakClassifier:
                     for pattern in self.BLOCKED_PATTERNS:
                         if re.search(pattern, decoded):
                             return False, f"Blocked pattern in base64 content: {pattern}"
-                except:
+                except Exception:
                     pass
-        except:
+        except Exception:
             pass
         
         return True, ""

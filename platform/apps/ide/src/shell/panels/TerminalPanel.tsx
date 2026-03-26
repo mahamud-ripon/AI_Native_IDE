@@ -1,3 +1,8 @@
+/**
+ * WebContainerTerminal - Browser-based terminal using xterm.js + WebContainer
+ * Used for browser-tier projects that don't require Firecracker VMs
+ */
+
 import { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
@@ -6,7 +11,11 @@ import 'xterm/css/xterm.css';
 import { ensureContainer, spawnShell, killShell } from '../../core/runtime/webcontainerManager';
 import styles from './Panel.module.css';
 
-export function TerminalPanel() {
+interface WebContainerTerminalProps {
+  onConnectionStateChange?: (state: 'connecting' | 'connected' | 'local' | 'offline') => void;
+}
+
+export function WebContainerTerminal({ onConnectionStateChange }: WebContainerTerminalProps = {}) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -33,22 +42,18 @@ export function TerminalPanel() {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
 
-    // Defer term.open() to ensure container has proper dimensions
-    // This fixes xterm.js viewport "Cannot read properties of undefined (reading 'dimensions')" error
-    // which occurs when the container hasn't been laid out yet
     let resizeHandler: (() => void) | null = null;
     let isTerminated = false;
 
     const openTerminal = () => {
       if (!terminalRef.current || !terminalRef.current.isConnected || isTerminated) {
-        console.warn('[TerminalPanel] Container no longer available, skipping terminal open');
+        console.warn('[WebContainerTerminal] Container no longer available, skipping terminal open');
         return;
       }
       
       try {
         term.open(terminalRef.current);
         
-        // Use requestAnimationFrame to ensure DOM is fully rendered before fitting
         requestAnimationFrame(() => {
           if (terminalRef.current && fitAddon && !isTerminated) {
             try {
@@ -59,7 +64,7 @@ export function TerminalPanel() {
           }
         });
       } catch (e) {
-        console.error('[TerminalPanel] Failed to open terminal:', e);
+        console.error('[WebContainerTerminal] Failed to open terminal:', e);
         return;
       }
 
@@ -74,7 +79,7 @@ export function TerminalPanel() {
 
       window.addEventListener('resize', resizeHandler);
 
-      term.writeln('\x1b[1;36m▶ Terminal ready\x1b[0m');
+      term.writeln('\x1b[1;36m▶ Terminal ready (Local Mode)\x1b[0m');
       term.writeln('Starting interactive shell...');
       term.writeln('');
     };
@@ -100,6 +105,7 @@ export function TerminalPanel() {
 
     const startShell = async () => {
       try {
+        onConnectionStateChange?.('connecting');
         term.writeln('\x1b[1;36m▶ Booting WebContainer...\x1b[0m');
         await ensureContainer();
         term.writeln('\x1b[1;32m✓ WebContainer ready\x1b[0m');
@@ -117,6 +123,8 @@ export function TerminalPanel() {
         shellWriterRef.current = writer;
         shellReaderRef.current = reader;
 
+        onConnectionStateChange?.('local');
+
         term.onData((data) => {
           writer.write(data);
         });
@@ -132,6 +140,7 @@ export function TerminalPanel() {
         pumpOutput();
       } catch (e) {
         if (!cancelled) {
+          onConnectionStateChange?.('offline');
           term.writeln(`\x1b[1;31mFailed to start shell: ${e instanceof Error ? e.message : 'Unknown error'}\x1b[0m`);
         }
       }
@@ -155,7 +164,7 @@ export function TerminalPanel() {
 
   return (
     <div className={styles.panel}>
-      <div className={styles.panelHeader}>Terminal</div>
+      <div className={styles.panelHeader}>Terminal (Local Mode)</div>
       <div className={styles.panelBody} style={{ padding: 0, minHeight: '200px' }}>
         <div
           ref={terminalRef}

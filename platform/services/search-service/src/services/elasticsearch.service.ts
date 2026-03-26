@@ -83,7 +83,7 @@ async function validateConnection(
     const errorMessage = error instanceof Error ? error.message : String(error);
     
     // Authentication-specific error handling
-    if (error instanceof errors.AuthenticationException) {
+    if (error instanceof Error && error.name === 'AuthenticationException') {
       return {
         success: false,
         error: 'Authentication failed (' + authInfo.description + '): Invalid credentials or expired API key',
@@ -402,3 +402,4 @@ export const IndexManager = {
 };
 
 export default esClient;
+export { esClient };

@@ -36,9 +36,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Circuit breaker health check
   app.get('/health/circuit-breaker', async (request, reply) => {
     return reply.send({
-      status: 'closed',
-      failures: 0,
-      nextAttempt: 0,
+      success: true,
+      data: { message: 'No circuit breakers configured for this service' },
     });
   });
 

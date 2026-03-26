@@ -30,6 +30,7 @@ import { localCodingService, isCodingIntent } from '../../services/localCodingSe
 import { aiOrchestrator, OrchestratorState } from '../../services/aiOrchestrator';
 import { aiServiceClient, WorkflowRun, WorkflowEvent } from '../../api/aiServiceClient';
 import { useIDEStore, ideEventBus } from '../../stores/ideStore';
+import { logger } from '../../lib/logger';
 import styles from './AIChatPanel.module.css';
 
 // ========================================
@@ -241,7 +242,7 @@ export function AIChatPanel({
       try {
         // Connect WebSocket for real-time updates
         aiServiceClient.connectWebSocket(
-          () => console.log('[AIChatPanel] WebSocket connected'),
+          () => logger.debug('[AIChatPanel] WebSocket connected'),
           (error) => console.error('[AIChatPanel] WebSocket error:', error)
         );
 

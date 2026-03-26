@@ -14,14 +14,10 @@ const envPaths = [
 let loadedEnvPath: string | null = null;
 for (const envPath of envPaths) {
   if (existsSync(envPath)) {
-    console.log('[EnvDebug] Loading .env from:', envPath);
     config({ path: envPath });
     loadedEnvPath = envPath;
     break;
   }
-}
-if (!loadedEnvPath) {
-  console.warn('[EnvDebug] No .env file found in any of these paths:', envPaths);
 }
 
 /**
@@ -112,11 +108,6 @@ const envSchema = z.object({
   // Internal
   INTERNAL_API_KEY: z.string().optional(),
 });
-
-// Debug: Show Kafka env vars before parsing
-console.log('[EnvDebug] KAFKA_BROKERS:', process.env.KAFKA_BROKERS);
-console.log('[EnvDebug] KAFKA_USERNAME:', process.env.KAFKA_USERNAME);
-console.log('[EnvDebug] KAFKA_PASSWORD:', process.env.KAFKA_PASSWORD ? '(set)' : '(not set)');
 
 // Parse and validate - throws on failure
 export const env = envSchema.parse(process.env);

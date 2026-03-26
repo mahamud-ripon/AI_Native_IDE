@@ -80,7 +80,9 @@ export async function circuitBreakerStatus(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  // Return circuit breaker states for upstream services
+  const kafkaHealth = await kafkaService.healthCheck();
+  const vaultHealth = await vaultService.healthCheck();
+
   reply.send({
     success: true,
     data: {
@@ -89,12 +91,12 @@ export async function circuitBreakerStatus(
         failureCount: 0,
       },
       vaultService: {
-        state: 'closed',
-        failureCount: 0,
+        state: vaultHealth.healthy ? 'closed' : 'open',
+        failureCount: vaultHealth.healthy ? 0 : 1,
       },
       kafkaService: {
-        state: 'closed',
-        failureCount: 0,
+        state: kafkaHealth.healthy ? 'closed' : 'open',
+        failureCount: kafkaHealth.healthy ? 0 : 1,
       },
     },
   });

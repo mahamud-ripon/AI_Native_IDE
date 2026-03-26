@@ -39,7 +39,7 @@ app.get('/api/v1/health', (req: Request, res: Response) => {
 });
 
 app.get('/api/v1/health/circuit-breaker', (req: Request, res: Response) => {
-  res.json({ status: 'closed', failures: 0 });
+  res.json({ success: true, data: { message: 'No circuit breakers configured for this service' } });
 });
 
 app.get('/api/v1/health/vm-pool', (req: Request, res: Response) => {

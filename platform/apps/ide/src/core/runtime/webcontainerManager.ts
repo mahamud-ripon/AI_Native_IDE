@@ -39,13 +39,13 @@ export async function bootContainer(): Promise<WebContainer> {
   return bootPromise;
 }
 
-export function getContainer(): WebContainer {
+export function getContainer(): WebContainer | null {
   if (!bootPromise) {
-    throw new Error('WebContainer not booted. Call ensureContainer() first.');
+    return null;
   }
-  // Note: This throws if the promise hasn't resolved yet.
-  // Use ensureContainer() for async access.
-  throw new Error('WebContainer not ready. Use ensureContainer() for async access.');
+  // Cannot synchronously resolve a promise — use ensureContainer() for async access.
+  // This returns null if the container is still booting.
+  return null;
 }
 
 export function ensureContainer(): Promise<WebContainer> {

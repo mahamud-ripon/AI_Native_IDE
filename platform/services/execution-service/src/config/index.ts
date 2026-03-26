@@ -42,5 +42,5 @@ export const config = {
     addr: process.env.VAULT_ADDR || 'https://vault.platform.io'
   },
 
-  internalApiKey: process.env.INTERNAL_API_KEY || 'dev-internal-key'
+  internalApiKey: process.env.INTERNAL_API_KEY || (() => { throw new Error('INTERNAL_API_KEY env var is required'); })()
 };

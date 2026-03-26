@@ -37,7 +37,7 @@ export const config = {
     azure: { subscriptionId: process.env.AZURE_SUBSCRIPTION_ID }
   },
 
-  internalApiKey: process.env.INTERNAL_API_KEY || 'dev-internal-key',
+  internalApiKey: process.env.INTERNAL_API_KEY || (() => { throw new Error('INTERNAL_API_KEY env var is required'); })(),
 
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379'

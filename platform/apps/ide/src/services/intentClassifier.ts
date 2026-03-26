@@ -147,31 +147,18 @@ export function classifyIntent(prompt: string): IntentResult {
     };
   }
   // Priority: complex > simple > conversation
-  else if (complexBuildScore >= 0.8) {
+  else if (complexBuildScore >= 0.85) {
     intent = 'complex_build';
     confidence = complexBuildScore;
-  } else if (simpleEditScore >= 0.7) {
+  } else if (simpleEditScore >= 0.8) {
     intent = 'simple_edit';
     confidence = simpleEditScore;
-  } else if (conversationScore >= 0.6) {
-    intent = 'conversation';
-    confidence = conversationScore;
   } else {
-    // Default: check for any code-related keywords
-    const codeKeywords = [
-      'code', 'function', 'class', 'component', 'file', 'app', 'program',
-      'script', 'module', 'interface', 'type', 'hook', 'api', 'service'
-    ];
-    
-    const hasCodeKeyword = codeKeywords.some(kw => p.includes(kw));
-    
-    if (hasCodeKeyword) {
-      intent = 'simple_edit';
-      confidence = 0.6;
-    } else {
-      intent = 'conversation';
-      confidence = 0.7;
-    }
+    // Default to conversation — let the backend's LLM classifier decide
+    // if the user actually wants to build something.
+    // The backend is smarter than keyword matching.
+    intent = 'conversation';
+    confidence = conversationScore > 0 ? conversationScore : 0.7;
   }
   
   // Generate reason for logging/debugging

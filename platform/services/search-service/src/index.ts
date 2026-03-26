@@ -53,6 +53,15 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason }, 'Unhandled Rejection');
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error({ error }, 'Uncaught Exception');
+  process.exit(1);
+});
+
 main().catch((error) => {
   logger.error(error, 'Failed to start search service');
   process.exit(1);

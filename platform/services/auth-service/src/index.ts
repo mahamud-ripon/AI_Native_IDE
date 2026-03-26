@@ -18,3 +18,12 @@ const startServer = async () => {
 };
 
 startServer();
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[auth-service] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[auth-service] Uncaught Exception:', error);
+  process.exit(1);
+});

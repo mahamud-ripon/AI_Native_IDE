@@ -12,5 +12,5 @@ export const config = {
   aiAgentsApiKey: process.env.AI_AGENTS_API_KEY || '',
   aiAgentsUrl: process.env.AI_AGENTS_URL || 'http://localhost:9000',
   projectServiceUrl: process.env.PROJECT_SERVICE_URL || 'http://localhost:8002',
-  internalApiKey: process.env.INTERNAL_API_KEY || 'internal-api-key',
+  internalApiKey: process.env.INTERNAL_API_KEY || (() => { throw new Error('INTERNAL_API_KEY env var is required'); })(),
 };

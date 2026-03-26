@@ -119,6 +119,10 @@ export interface GitFileStatus {
   staged: boolean;
 }
 
+export type ProjectType = 'browser' | 'cloud';
+
+export type TerminalConnectionState = 'offline' | 'connecting' | 'connected' | 'local';
+
 export interface TerminalSession {
   id: string;
   name: string;
@@ -175,6 +179,12 @@ interface IDEState {
   // Pending AI diffs
   pendingDiffs: Map<string, PendingDiff>;
 
+  // Project type (determines terminal mode)
+  projectType: ProjectType;
+
+  // Terminal connection state
+  terminalConnectionState: TerminalConnectionState;
+
   // Connection status
   isWorkspaceConnected: boolean;
   isAIConnected: boolean;
@@ -209,6 +219,7 @@ interface IDEState {
   addTerminalOutput: (data: string) => void;
   clearTerminal: () => void;
   setBottomPanelTab: (tab: IDEState['bottomPanelTab']) => void;
+  setTerminalConnectionState: (state: TerminalConnectionState) => void;
 
   // Actions - Preview
   setPreviewUrl: (url: string) => void;
@@ -228,7 +239,8 @@ interface IDEState {
   setAIConnected: (connected: boolean) => void;
 
   // Actions - Project
-  setProject: (projectId: string, projectName: string, workspaceId: string) => void;
+  setProject: (projectId: string, projectName: string, workspaceId: string, projectType?: ProjectType) => void;
+  setProjectType: (projectType: ProjectType) => void;
 }
 
 // ============================================================================
@@ -299,6 +311,8 @@ export const useIDEStore = create<IDEState>()(
         currentBranch: 'main',
         gitIsLoading: false,
         pendingDiffs: new Map(),
+        projectType: 'browser',
+        terminalConnectionState: 'offline',
         isWorkspaceConnected: false,
         isAIConnected: false,
         bottomPanelTab: 'terminal',
@@ -452,6 +466,10 @@ export const useIDEStore = create<IDEState>()(
           set({ bottomPanelTab: tab });
         },
 
+        setTerminalConnectionState: (state) => {
+          set({ terminalConnectionState: state });
+        },
+
         // Preview actions
         setPreviewUrl: (url) => {
           set({ previewUrl: url });
@@ -521,7 +539,7 @@ export const useIDEStore = create<IDEState>()(
         },
 
         // Project actions
-        setProject: (projectId, projectName, workspaceId) => {
+        setProject: (projectId, projectName, workspaceId, projectType) => {
           const currentProjectId = get().projectId;
           if (currentProjectId && currentProjectId !== projectId) {
             // Clear tabs and state when switching to a different project
@@ -529,14 +547,20 @@ export const useIDEStore = create<IDEState>()(
               projectId,
               projectName,
               workspaceId,
+              projectType: projectType || 'browser',
               openTabs: [],
               activeTabPath: null,
               selectedFilePath: null,
-              fileContents: new Map()
+              fileContents: new Map(),
+              terminalConnectionState: 'offline',
             });
           } else {
-            set({ projectId, projectName, workspaceId });
+            set({ projectId, projectName, workspaceId, projectType: projectType || get().projectType });
           }
+        },
+
+        setProjectType: (projectType) => {
+          set({ projectType });
         },
       }),
       {
@@ -547,6 +571,7 @@ export const useIDEStore = create<IDEState>()(
           bottomPanelHeight: state.bottomPanelHeight,
           currentBranch: state.currentBranch,
           previewUrl: state.previewUrl,
+          projectType: state.projectType,
         }),
       }
     )

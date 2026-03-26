@@ -1,14 +1,20 @@
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-type LogPayload = Record<string, unknown> | string | number | boolean | null | undefined;
+const LOG_LEVELS: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
 
-type LogArgs = [LogPayload, string?, ...unknown[]] | [string, ...unknown[]];
-
-function formatArgs(args: unknown[]): unknown[] {
-  return args;
-}
+// In production, suppress debug and info logs; in dev, show everything
+const MIN_LEVEL: number = import.meta.env.PROD
+  ? LOG_LEVELS.warn
+  : LOG_LEVELS.debug;
 
 function log(level: LogLevel, ...args: unknown[]): void {
+  if (LOG_LEVELS[level] < MIN_LEVEL) return;
+
   const prefix = `[${level.toUpperCase()}]`;
   const method: (...a: unknown[]) => void =
     level === 'debug'
@@ -19,7 +25,7 @@ function log(level: LogLevel, ...args: unknown[]): void {
           ? console.warn
           : console.error;
 
-  method(prefix, ...formatArgs(args));
+  method(prefix, ...args);
 }
 
 export const logger = {

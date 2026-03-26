@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from typing import Any, AsyncGenerator, Optional
 
 from langchain_core.output_parsers import PydanticOutputParser
@@ -90,6 +91,31 @@ FEW_SHOT_EXAMPLES = """
 """
 
 
+# Patterns that indicate the prompt is too vague for a PRD
+VAGUE_PATTERNS = [
+    r'^\s*(hi|hello|hey|sup|yo|hiya)\s*[!.?]*\s*$',
+    r'^\s*how are you\s*[?]*\s*$',
+    r'^\s*what (can|do) you do\s*[?]*\s*$',
+    r'^\s*(thanks|thank you|ty)\s*[!.]*\s*$',
+    r'^\s*(help|help me)\s*[!.?]*\s*$',
+    r'^\s*(ok|okay|sure|cool|nice|great)\s*[!.]*\s*$',
+    r'^\s*\w{1,8}\s*$',  # Single very short word
+]
+
+
+def _is_prompt_specific(prompt: str) -> bool:
+    """Check if the prompt has enough specificity to generate a PRD.
+
+    Returns False for vague greetings, short prompts, or
+    messages that don't describe what to build.
+    """
+    p = prompt.lower().strip()
+    for pattern in VAGUE_PATTERNS:
+        if re.match(pattern, p):
+            return False
+    return True
+
+
 def _estimate_cost(
     input_text: str,
     output_text: str,
@@ -165,6 +191,14 @@ class PMAgent:
         if not state.user_prompt:
             return {"errors": ["PM Agent: Missing user prompt"]}
 
+        # Validate prompt specificity — stop hallucinating on vague prompts
+        if not _is_prompt_specific(state.user_prompt):
+            return {
+                "errors": ["PM Agent: Your request is too vague. Please describe what you want to build in more detail (e.g., 'Build a todo app with React')."],
+                "pm_output": None,
+                "clarification_needed": True,
+            }
+
         # Check for API key - return stub if missing
         if not os.getenv("ANTHROPIC_API_KEY"):
             return {
@@ -237,6 +271,11 @@ class PMAgent:
         """
         if not state.user_prompt:
             yield ("", {"error": "PM Agent: Missing user prompt"})
+            return
+
+        # Validate prompt specificity — stop hallucinating on vague prompts
+        if not _is_prompt_specific(state.user_prompt):
+            yield ("", {"error": "Your request is too vague. Please describe what you want to build in more detail.", "clarification_needed": True, "done": True})
             return
 
         # Check for API key - return stub if missing

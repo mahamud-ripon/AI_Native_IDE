@@ -70,6 +70,15 @@ async function shutdown(signal: string) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[Billing] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Billing] Uncaught Exception:', error);
+  process.exit(1);
+});
+
 main().catch((err) => {
   console.error('[Billing] Startup error:', err);
   process.exit(1);

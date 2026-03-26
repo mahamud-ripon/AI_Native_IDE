@@ -29,7 +29,7 @@ fastify.get('/health', async () => {
 });
 
 fastify.get('/health/circuit-breaker', async () => {
-  return { status: 'closed', failures: 0 };
+  return { success: true, data: { message: 'No circuit breakers configured for this service' } };
 });
 
 // Protected endpoints with auth

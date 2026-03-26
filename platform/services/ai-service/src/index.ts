@@ -161,3 +161,12 @@ process.on('SIGINT', async () => {
 });
 
 start();
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[ai-service] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[ai-service] Uncaught Exception:', error);
+  process.exit(1);
+});

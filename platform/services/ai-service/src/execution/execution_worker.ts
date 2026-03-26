@@ -18,7 +18,7 @@ import { config } from '../config.js';
 import { getExecutionTaskService, ExecutionTaskService } from './execution_task_service.js';
 import { getTaskOrchestrator, TaskOrchestrator } from '../coding/execution/task_orchestrator.js';
 import { getRollbackManager, RollbackManager } from '../coding/execution/rollback_manager.js';
-import { WorkspaceFS } from '../coding/workspace/index.js';
+import { WorkspaceFS, RemoteWorkspaceFS, createRemoteWorkspace } from '../coding/workspace/index.js';
 import { getDiffEngine } from '../coding/patch/index.js';
 import { ExecutionTaskMessage, EXECUTION_STAGES, EXECUTION_KAFKA_TOPICS } from './execution_types.js';
 import { ExecutionTaskStatus, ExecutionEventType } from '@prisma/client';
@@ -224,14 +224,18 @@ async function processTask(
     console.log(`[ExecutionWorker] Processing task ${taskId}: ${instruction.slice(0, 50)}...`);
     console.log(`[ExecutionWorker] Active tasks: ${activeTaskCount}/${MAX_CONCURRENT_TASKS}`);
 
-    // Create workspace from root path
-    const rootPath = message.rootPath ?? `/workspaces/${workspaceId}`;
-    console.log(`[ExecutionWorker] Using root path: ${rootPath}${message.rootPath ? '' : ' (default)'}`);
-    const workspace = new WorkspaceFS({ rootPath });
+    // Create remote workspace (files stored in S3 via project-service API)
+    console.log(`[ExecutionWorker] Creating remote workspace for project ${projectId}`);
+    const workspace = createRemoteWorkspace({
+      projectId,
+      projectServiceUrl: config.projectServiceUrl,
+      internalApiKey: config.internalApiKey,
+      userId: message.userId ?? 'system',
+    });
     workspace.setDiffEngine(getDiffEngine());
 
-    // Register workspace with orchestrator
-    orchestrator.registerWorkspace(workspaceId, workspace);
+    // Register workspace with orchestrator (cast to WorkspaceFS for type compat)
+    orchestrator.registerWorkspace(workspaceId, workspace as unknown as WorkspaceFS);
 
     // Set up progress callback to emit events
     orchestrator.setProgressCallback(async (event) => {
@@ -329,7 +333,7 @@ async function processTask(
         
         try {
           const rollbackManager = getRollbackManager();
-          const rollbackResult = await rollbackManager.restoreSnapshot(workspace, task.snapshotId);
+          const rollbackResult = await rollbackManager.restoreSnapshot(workspace as unknown as WorkspaceFS, task.snapshotId);
           rollbackPerformed = rollbackResult.success;
           
           if (rollbackResult.success) {
@@ -408,46 +412,9 @@ async function processTask(
 
       console.log(`[ExecutionWorker] Task ${taskId} completed successfully`);
 
-      // ========================================
-      // SYNC FILES TO PROJECT SERVICE (S3 + DB)
-      // ========================================
+      // Files are already in S3 (RemoteWorkspaceFS writes directly via project-service API)
       if (result.agentResult?.filesChanged && result.agentResult.filesChanged.length > 0) {
-        try {
-          console.log(`[ExecutionWorker] Syncing ${result.agentResult.filesChanged.length} files to project service...`);
-          const files = [];
-          for (const filePath of result.agentResult.filesChanged) {
-            try {
-              const content = await workspace.readFile(filePath);
-              files.push({ path: filePath, content });
-            } catch (err) {
-              console.warn(`[ExecutionWorker] Could not read modified file ${filePath} for sync:`, err);
-            }
-          }
-          
-          if (files.length > 0) {
-            const syncUrl = `${config.projectServiceUrl}/api/v1/projects/${projectId}/files/sync`;
-            const syncRes = await fetch(syncUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-internal-api-key': config.internalApiKey,
-              },
-              body: JSON.stringify({
-                files,
-                userId: message.userId ?? 'system',
-              }),
-            });
-            
-            if (!syncRes.ok) {
-              const syncErr = await syncRes.text();
-              console.error(`[ExecutionWorker] Failed to sync files to project service: ${syncRes.status} ${syncErr}`);
-            } else {
-              console.log(`[ExecutionWorker] Successfully synced ${files.length} files to project service`);
-            }
-          }
-        } catch (syncErr) {
-          console.error(`[ExecutionWorker] Error during file sync:`, syncErr);
-        }
+        console.log(`[ExecutionWorker] ${result.agentResult.filesChanged.length} files saved to S3 via project-service: ${result.agentResult.filesChanged.join(', ')}`);
       }
     } else {
       // Task failed

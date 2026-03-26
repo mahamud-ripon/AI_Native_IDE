@@ -110,6 +110,11 @@ class CodeResult(BaseModel):
     dependencies: List[str] = Field(default_factory=list)
     instructions: Optional[str] = None
 
+    @property
+    def files(self) -> Dict[str, str]:
+        """Backward-compatible alias for create_files."""
+        return self.create_files
+
 
 # Backward compatibility alias
 CodeOutput = CodeResult

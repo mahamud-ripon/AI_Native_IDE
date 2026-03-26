@@ -121,10 +121,6 @@ export async function edgeAuthMiddleware(request: FastifyRequest, reply: Fastify
     };
 
   } catch (error: any) {
-    console.error('[JWT DEBUG] Verification failed:', error.name, error.message);
-    console.error('[JWT DEBUG] Token (first 50 chars):', token.substring(0, 50));
-    console.error('[JWT DEBUG] Public key available:', !!JWT_PUBLIC_KEY);
-    
     if (error.name === 'TokenExpiredError') {
       return reply.status(401).send({ 
         success: false, 

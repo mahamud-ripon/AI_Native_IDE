@@ -15,6 +15,8 @@
  *   - Typed event handling
  */
 
+import { logger } from '../lib/logger';
+
 // ========================================
 // TYPES
 // ========================================
@@ -204,7 +206,7 @@ export class ExecutionStreamClient {
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
-          console.log('[ExecutionStreamClient] Connected');
+          logger.debug('[ExecutionStreamClient] Connected');
           this.setStatus('connected');
           this.reconnectAttempts = 0;
           resolve();
@@ -215,7 +217,7 @@ export class ExecutionStreamClient {
         };
 
         this.ws.onclose = (event) => {
-          console.log('[ExecutionStreamClient] Disconnected:', event.code, event.reason);
+          logger.debug('[ExecutionStreamClient] Disconnected:', event.code, event.reason);
           this.setStatus('disconnected');
           this.handleDisconnect();
         };
@@ -263,7 +265,7 @@ export class ExecutionStreamClient {
    * Connect in mock mode (no backend required)
    */
   private async connectMock(): Promise<void> {
-    console.log('[ExecutionStreamClient] Mock mode enabled - simulating connection');
+    logger.debug('[ExecutionStreamClient] Mock mode enabled - simulating connection');
     this.setStatus('connected');
     this.reconnectAttempts = 0;
 
@@ -339,7 +341,7 @@ export class ExecutionStreamClient {
    * Emit a mock event to all subscribers
    */
   private emitMockEvent(event: ExecutionEvent): void {
-    console.log('[ExecutionStreamClient] Mock event:', event.type, event.sequence);
+    logger.debug('[ExecutionStreamClient] Mock event:', event.type, event.sequence);
 
     // Update last sequence
     this.lastSequence.set(event.taskId, event.sequence);
@@ -390,7 +392,7 @@ export class ExecutionStreamClient {
       // Calculate delay with exponential backoff
       const delay = this.calculateReconnectDelay();
 
-      console.log(
+      logger.debug(
         `[ExecutionStreamClient] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms...`
       );
 
@@ -487,7 +489,7 @@ export class ExecutionStreamClient {
       const data = await response.json();
       const events: ExecutionEvent[] = data.events ?? [];
 
-      console.log(
+      logger.debug(
         `[ExecutionStreamClient] Replaying ${events.length} events for ${taskId ?? workspaceId}`
       );
 
@@ -684,17 +686,17 @@ export class ExecutionStreamClient {
 
       // 'connected' is sent by both the WS gateway and the AI service /ws endpoint
       if (type === 'connected' || type === 'connection.established') {
-        console.log('[ExecutionStreamClient] Connection established:', message.connectionId || rawMessage.connectionId);
+        logger.debug('[ExecutionStreamClient] Connection established:', message.connectionId || rawMessage.connectionId);
         return;
       }
 
       if (type === 'execution.subscribed' || type === 'subscribed') {
-        console.log('[ExecutionStreamClient] Subscribed:', message.channel || rawMessage.channel);
+        logger.debug('[ExecutionStreamClient] Subscribed:', message.channel || rawMessage.channel);
         return;
       }
 
       if (type === 'execution.unsubscribed' || type === 'unsubscribed') {
-        console.log('[ExecutionStreamClient] Unsubscribed:', message.taskId || message.workspaceId || rawMessage.taskId);
+        logger.debug('[ExecutionStreamClient] Unsubscribed:', message.taskId || message.workspaceId || rawMessage.taskId);
         return;
       }
 

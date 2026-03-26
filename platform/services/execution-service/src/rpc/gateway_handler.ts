@@ -3,6 +3,8 @@ import { redis, RedisKeys } from '../lib/redis.js';
 import { TerminalPTY } from '../streams/terminal_pty.js';
 import { SnapshotManager } from '../vm_manager/snapshot_manager.js';
 
+const isDevelopment = process.env.NODE_ENV === 'development';
+
 export const GatewayHandler = {
   async handleConnection(ws: WebSocket, sessionId: string): Promise<void> {
     console.log(`[Gateway] New WebSocket connection for session ${sessionId}`);
@@ -17,7 +19,12 @@ export const GatewayHandler = {
       const activeVmId = await redis.get(`vm:project:${sessionId}:active`);
       if (activeVmId) {
         vmId = activeVmId;
-        command = '/bin/bash'; // default fallback shell
+        command = '/bin/bash';
+      } else if (isDevelopment) {
+        // Development mode: allow local shell without VM
+        console.log(`[Gateway] Development mode: creating local shell for session ${sessionId}`);
+        vmId = sessionId; // Pass sessionId as vmId; the adapter will handle it
+        command = '/bin/bash';
       } else {
         ws.close(4004, 'Session or VM not found');
         return;

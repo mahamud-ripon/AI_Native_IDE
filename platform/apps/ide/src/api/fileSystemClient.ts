@@ -5,7 +5,7 @@
  * Supports CRUD operations, directory listing, and file watching.
  */
 
-const API_BASE = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
+import { apiConfig } from '../lib/apiConfig';
 
 export interface FileEntry {
   name: string;
@@ -32,7 +32,7 @@ export interface FileOperation {
 class FileSystemClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string = API_BASE) {
+  constructor(baseUrl: string = apiConfig.baseUrl) {
     this.baseUrl = baseUrl;
   }
 

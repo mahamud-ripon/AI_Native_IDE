@@ -119,6 +119,12 @@ export async function internalAuthMiddleware(
     });
     return;
   }
+
+  // Set user from x-user-id header for internal service calls
+  const userId = request.headers['x-user-id'] as string;
+  if (userId) {
+    (request as any).user = { sub: userId, role: 'system' };
+  }
 }
 
 /**

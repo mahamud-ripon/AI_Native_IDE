@@ -24,7 +24,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   });
 
   await app.register(fastifyCookie, {
-    secret: process.env.COOKIE_SECRET || 'fallback-super-secret', // Securely signed cookies
+    secret: process.env.COOKIE_SECRET || (() => { throw new Error('COOKIE_SECRET env var is required'); })(),
     hook: 'onRequest',
   });
 

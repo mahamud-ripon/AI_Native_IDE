@@ -27,4 +27,20 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+process.on('SIGINT', async () => {
+  console.log('[Notification] SIGINT received, shutting down...');
+  await redis.quit();
+  await disconnectPrisma();
+  process.exit(0);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Notification] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Notification] Uncaught Exception:', error);
+  process.exit(1);
+});
+
 main().catch(console.error);

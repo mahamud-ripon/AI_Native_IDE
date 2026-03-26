@@ -29,12 +29,9 @@ interface RequestConfig extends RequestInit {
   traceId?: string;
 }
 
-// ========================================
-// Configuration
-// ========================================
-
-const API_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8012';
+import { apiConfig } from './apiConfig';
+import { getAccessToken as getStoredToken, clearTokens as clearStoredTokens } from './auth';
+import { toast } from 'sonner';
 
 // ========================================
 // Token Management
@@ -44,8 +41,7 @@ let accessToken: string | null = null;
 let refreshTokenPromise: Promise<string> | null = null;
 
 function getTokenFromStorage(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+  return getStoredToken();
 }
 
 function setTokenInStorage(token: string | null): void {
@@ -76,7 +72,7 @@ async function refreshAccessToken(): Promise<string> {
 
   refreshTokenPromise = (async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      const response = await fetch(`${apiConfig.baseUrl}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,7 +104,7 @@ async function refreshAccessToken(): Promise<string> {
 
 function clearTokens(): void {
   accessToken = null;
-  setTokenInStorage(null);
+  clearStoredTokens();
 }
 
 // ========================================
@@ -153,7 +149,7 @@ async function request<T>(
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
       ...restConfig,
       headers: requestHeaders,
       credentials: 'include',
@@ -174,9 +170,9 @@ async function request<T>(
                                errorMessage.includes('Token expired');
         
         if (isTokenExpired) {
-          alert('Your session has expired. Please log in again.');
+          toast.error('Your session has expired. Please log in again.');
         } else {
-          alert('Authentication failed. Please log in again.');
+          toast.error('Authentication failed. Please log in again.');
         }
         
         window.location.href = '/login';
@@ -377,5 +373,5 @@ export const api = {
 // Exports
 // ========================================
 
-export { API_BASE_URL, WS_URL, ApiRequestError, clearTokens, getAccessToken };
+export { apiConfig, ApiRequestError, clearTokens, getAccessToken };
 export default api;

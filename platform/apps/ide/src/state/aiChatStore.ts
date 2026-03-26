@@ -21,10 +21,25 @@
 import { create } from 'zustand';
 import { groqClient, AI_ASSISTANT_SYSTEM_PROMPT } from '../services/groqClient';
 import { localCodingService } from '../services/localCodingService';
-import { ideEventBus } from '../stores/ideStore';
+import { ideEventBus, useIDEStore, FileNode } from '../stores/ideStore';
 import { classifyIntent, getServiceForIntent, getIntentLabel, Intent, IntentResult } from '../services/intentClassifier';
+import { logger } from '../lib/logger';
+import { apiConfig } from '../lib/apiConfig';
 
-const API_BASE = import.meta.env.VITE_API_GATEWAY_URL || 'http://localhost:8000';
+// ========================================
+// HELPERS
+// ========================================
+
+/** Flatten FileNode tree to list of file paths */
+function flattenFileTree(nodes: FileNode[]): string[] {
+  const paths: string[] = [];
+  const walk = (n: FileNode) => {
+    if (n.type === 'file') paths.push(n.path);
+    if (n.children) n.children.forEach(walk);
+  };
+  nodes.forEach(walk);
+  return paths;
+}
 
 // ========================================
 // TYPES
@@ -70,6 +85,10 @@ interface AIChatState {
   input: string;
   isSending: boolean;
 
+  // Current mode - distinguishes chat from build
+  mode: 'idle' | 'chatting' | 'building';
+  setMode: (mode: 'idle' | 'chatting' | 'building') => void;
+
   // Actions - Conversations
   createConversation: (projectId: string, workspaceId: string) => string;
   setActiveConversation: (conversationId: string) => void;
@@ -90,6 +109,7 @@ interface AIChatState {
 
   // Actions - API
   sendMessage: (conversationId: string, projectId: string, workspaceId: string) => Promise<string | null>;
+  loadHistory: (projectId: string) => Promise<void>;
 
   // Getters
   getConversation: (conversationId: string) => Conversation | undefined;
@@ -108,6 +128,10 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   activeConversationId: null,
   input: '',
   isSending: false,
+  mode: 'idle',
+
+  // Mode actions
+  setMode: (mode) => set({ mode }),
 
   // Conversation actions
   createConversation: (projectId, workspaceId) => {
@@ -280,7 +304,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     const { intent, confidence } = intentResult;
     const service = getServiceForIntent(intent);
     
-    console.log(`[IntentClassifier] "${input.slice(0, 50)}..." → ${intent} (${(confidence * 100).toFixed(0)}% confidence)`);
+    logger.debug(`[IntentClassifier] "${input.slice(0, 50)}..." → ${intent} (${(confidence * 100).toFixed(0)}% confidence)`);
 
     // Add user message with intent metadata
     const userMessageId = state.addMessage(conversationId, {
@@ -294,32 +318,14 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     try {
       // === STEP 2: Route based on Intent ===
-      
+      // Always go through ai-service — the server-side LLM classifier
+      // handles CHITCHAT vs WORKFLOW routing with higher accuracy.
+
       switch (intent) {
-        case 'conversation':
-          // === CONVERSATION → Use Groq (fast, direct) ===
-          console.log('[Router] Using Groq for conversation');
-          const groqResult = await sendWithGroq(conversationId, input, state);
-          set({ isSending: false });
-          return groqResult;
-
-        case 'simple_edit':
-          // === SIMPLE EDIT → Use ai-service (CodeAgent) ===
-          console.log('[Router] Using ai-service for simple edit');
-          const aiServiceResult = await sendToAIService(
-            conversationId, 
-            input, 
-            projectId, 
-            workspaceId, 
-            state,
-            intent
-          );
-          set({ isSending: false });
-          return aiServiceResult;
-
         case 'complex_build':
-          // === COMPLEX BUILD → Use ai-agents (streaming pipeline) ===
-          console.log('[Router] Using ai-agents for complex build');
+          // High-confidence build request → direct to ai-agents pipeline
+          logger.debug('[Router] Using ai-agents for complex build');
+          set({ mode: 'building' });
           const aiAgentsResult = await sendToAIAgents(
             conversationId,
             input,
@@ -328,17 +334,28 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             state,
             intent
           );
-          set({ isSending: false });
+          set({ isSending: false, mode: 'idle' });
           return aiAgentsResult;
 
         default:
-          // Fallback to Groq
-          const fallbackResult = await sendWithGroq(conversationId, input, state);
-          set({ isSending: false });
-          return fallbackResult;
+          // ALL other cases → go through ai-service (server-side LLM classifier decides)
+          // The server will classify as CHITCHAT (chat response) or WORKFLOW (build response)
+          logger.debug(`[Router] Routing via ai-service (frontend intent: ${intent})`);
+          set({ mode: intent === 'conversation' ? 'chatting' : 'building' });
+          const aiServiceResult = await sendToAIService(
+            conversationId, 
+            input, 
+            projectId, 
+            workspaceId, 
+            state,
+            intent
+          );
+          set({ isSending: false, mode: 'idle' });
+          return aiServiceResult;
       }
     } catch (error) {
       // Add error message
+      set({ mode: 'idle' });
       get().addMessage(conversationId, {
         role: 'system',
         content: `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -371,6 +388,57 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   getLastMessage: (conversationId) => {
     const messages = get().getMessages(conversationId);
     return messages[messages.length - 1];
+  },
+
+  // Load chat history from backend database
+  loadHistory: async (projectId: string) => {
+    try {
+      const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+      const response = await fetch(`${apiConfig.baseUrl}/api/v1/ai/chat/history/${projectId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (!data.conversations?.length) return;
+
+      // Pick the most recent conversation with messages
+      const latest = data.conversations[0];
+      if (!latest.messages?.length) return;
+
+      const conversationId = latest.id;
+
+      // Rebuild conversation in zustand store
+      const convMessages: ChatMessage[] = latest.messages.map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.createdAt).getTime(),
+        status: 'complete' as const,
+      }));
+
+      set((state) => {
+        const newConversations = new Map(state.conversations);
+        newConversations.set(conversationId, {
+          id: conversationId,
+          projectId,
+          workspaceId: latest.workspaceId || 'default',
+          messages: convMessages,
+          createdAt: new Date(latest.createdAt).getTime(),
+          updatedAt: Date.now(),
+          activeTaskId: null,
+        });
+        return {
+          conversations: newConversations,
+          activeConversationId: conversationId,
+        };
+      });
+
+      logger.debug(`[AIChat] Loaded ${convMessages.length} messages from history`);
+    } catch (err) {
+      logger.debug('[AIChat] Failed to load history:', err);
+    }
   },
 }));
 
@@ -585,7 +653,21 @@ async function sendToAIService(
 
   try {
     const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
-    const response = await fetch(`${API_BASE}/api/v1/ai/execution/tasks`, {
+
+    // Build chat history from conversation for context
+    const conversation = state.conversations.get(conversationId);
+    const chatHistory = conversation?.messages
+      .filter(m => (m.role === 'user' || m.role === 'assistant') && m.id !== assistantMessageId)
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })) ?? [];
+
+    // Build workspace context from IDE state
+    const ideState = useIDEStore.getState();
+    const fileTree = flattenFileTree(ideState.fileTree);
+    const activeFile = ideState.activeTabPath;
+    const activeFileContent = activeFile ? ideState.fileContents.get(activeFile) ?? null : null;
+    const openTabs = ideState.openTabs.map(t => t.path);
+
+    const response = await fetch(`${apiConfig.baseUrl}/api/v1/ai/execution/tasks`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -595,6 +677,13 @@ async function sendToAIService(
         projectId,
         workspaceId,
         instruction: input,
+        chatHistory,
+        workspaceContext: {
+          fileTree,
+          activeFile,
+          activeFileContent: activeFileContent?.slice(0, 8000),
+          openTabs,
+        },
         metadata: {
           agent: 'ai-chat',
           clientInfo: { type: 'ide' },
@@ -607,7 +696,28 @@ async function sendToAIService(
     if (response.ok) {
       const data = await response.json();
       
-      // Update message with task info
+      // Check if the server classified this as CHITCHAT (chat response, not a task)
+      if (data.type === 'chat') {
+        // Detect fallback or error responses from the backend
+        const isFallback = data._meta?.wasFallback || data.status === 'error';
+        const messageContent = data.message || '';
+        
+        if (isFallback || !messageContent) {
+          console.warn(
+            `[AIChat] Received ${data.status === 'error' ? 'error' : 'empty'} response from chat service`,
+            { taskId: data.taskId, provider: data._meta?.provider, chunkCount: data._meta?.chunkCount }
+          );
+        }
+
+        state.updateMessage(conversationId, assistantMessageId, {
+          content: messageContent || 'No response received from the AI service.',
+          status: data.status === 'error' ? 'error' : 'complete',
+          metadata: isFallback ? { model: data._meta?.provider ?? 'unknown' } : undefined,
+        });
+        return assistantMessageId;
+      }
+
+      // WORKFLOW response — update message with task info
       state.updateMessage(conversationId, assistantMessageId, {
         content: `${intentLabel} - Task started`,
         taskId: data.taskId,
@@ -620,7 +730,7 @@ async function sendToAIService(
       return data.taskId;
     } else {
       // If ai-service fails, fall back to Groq
-      console.log('[Router] ai-service failed, falling back to Groq');
+      logger.warn('[Router] ai-service failed, falling back to Groq');
       state.updateMessage(conversationId, assistantMessageId, {
         content: 'Processing with local AI...',
         status: 'streaming',
@@ -680,9 +790,15 @@ async function sendToAIAgents(
 
   try {
     const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
-    
+
+    // Build chat history from conversation for context
+    const conversation = state.conversations.get(conversationId);
+    const chatHistory = conversation?.messages
+      .filter(m => (m.role === 'user' || m.role === 'assistant') && m.id !== assistantMessageId)
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })) ?? [];
+
     // Use the workflow stream endpoint for SSE
-    const response = await fetch(`${API_BASE}/api/v1/workflow/stream`, {
+    const response = await fetch(`${apiConfig.baseUrl}/api/v1/workflow/stream`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -695,6 +811,7 @@ async function sendToAIAgents(
         workspace_id: workspaceId,
         stream: true,
         intent: intent,
+        chat_history: chatHistory,
       }),
     });
 
@@ -795,7 +912,7 @@ async function sendToAIAgents(
       return assistantMessageId;
     } else {
       // If ai-agents fails, fall back to local coding service
-      console.log('[Router] ai-agents failed, falling back to local coding service');
+      logger.warn('[Router] ai-agents failed, falling back to local coding service');
       state.updateMessage(conversationId, assistantMessageId, {
         content: 'Processing locally...',
         status: 'streaming',

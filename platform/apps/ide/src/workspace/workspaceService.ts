@@ -350,6 +350,6 @@ class RemoteWorkspaceService implements WorkspaceService {
   }
 }
 
-// Use RemoteWorkspaceService for real cloud IDE
-// Change to LocalWorkspaceService for demo mode (WebContainer)
-export const workspaceService: WorkspaceService = new LocalWorkspaceService();
+// Use RemoteWorkspaceService for real cloud IDE (S3/MinIO storage)
+// Change to LocalWorkspaceService for demo mode (browser WebContainer)
+export const workspaceService: WorkspaceService = new RemoteWorkspaceService();

@@ -12,6 +12,14 @@ import { createMetricsCollector } from './metrics.js';
 import { emitLlmCallCompleted, emitLlmCallFailed } from '../kafka/ai_llm_events.js';
 import { config } from '../config.js';
 
+// Last-resort mock capabilities for fallback chain
+const MOCK_FALLBACK_CAPABILITIES = {
+  supportsTools: true,
+  supportsVision: false,
+  supportsStreaming: true,
+  maxContextTokens: 128000,
+};
+
 // Structured logger for gateway observability
 const log = {
   info: (message: string, data: Record<string, unknown>) => {
@@ -160,10 +168,11 @@ export function createLLMGateway(gatewayConfig: LLMGatewayConfig): LLMGateway {
       return response;
     }
 
-    // Try primary provider, then fallback chain
+    // Try primary provider, then fallback chain, then mock as last resort
     const providersToTry = [
       { provider: route.provider, model: route.model, capabilities: route.capabilities },
       ...route.fallbackChain,
+      { provider: 'mock' as LLMProvider, model: 'mock-llm-v1', capabilities: MOCK_FALLBACK_CAPABILITIES },
     ];
 
     let lastError: Error | null = null;
@@ -300,6 +309,16 @@ export function createLLMGateway(gatewayConfig: LLMGatewayConfig): LLMGateway {
     const route = resolveRoute(req);
     const estimatedTokens = req.maxTokens ?? 4096;
 
+    log.info('LLM stream started', {
+      requestId,
+      workflowId: req.workflowId,
+      agentName: req.agentName,
+      stepName: req.stepName,
+      taskType: req.taskType,
+      primaryProvider: route.provider,
+      primaryModel: route.model,
+    });
+
     // Quota check
     const quotaResult = await quota.assertQuota({
       userId: req.userId ?? 'anonymous',
@@ -308,6 +327,7 @@ export function createLLMGateway(gatewayConfig: LLMGatewayConfig): LLMGateway {
     });
 
     if (!quotaResult.allowed) {
+      log.warn('Stream quota exceeded', { requestId, userId: req.userId, reason: quotaResult.reason });
       yield {
         type: 'error',
         data: {
@@ -318,116 +338,131 @@ export function createLLMGateway(gatewayConfig: LLMGatewayConfig): LLMGateway {
       return;
     }
 
-    // Streaming does not use cache (by design for MVP)
-    const adapter = getAdapter(route.provider);
+    // Build provider list: primary + fallback chain + mock as last resort
+    const providersToTry = [
+      { provider: route.provider, model: route.model },
+      ...route.fallbackChain,
+      { provider: 'mock' as LLMProvider, model: 'mock-llm-v1' },
+    ];
 
-    if (!adapter) {
-      yield {
-        type: 'error',
-        data: {
-          message: `No adapter for provider: ${route.provider}`,
-          retryable: false,
-        },
-      };
-      return;
-    }
-
-    let tokensIn = 0;
-    let tokensOut = 0;
-    let latencyMs = 0;
-    let costUsd = 0;
-    let hasError = false;
-
-    try {
-      for await (const event of adapter.stream(req, route.model)) {
-        if (event.type === 'done') {
-          tokensIn = event.data.tokensIn;
-          tokensOut = event.data.tokensOut;
-          latencyMs = event.data.latencyMs;
-          costUsd = event.data.costUsd;
-
-          // Record tokens
-          if (req.userId) {
-            await quota.recordUserTokens(req.userId, tokensIn + tokensOut);
-          }
-          if (req.orgId) {
-            await quota.recordOrgTokens(req.orgId, tokensIn + tokensOut);
-          }
-
-          // Emit Kafka event
-          await emitLlmCallCompleted({
-            requestId,
-            workflowId: req.workflowId,
-            projectId: req.projectId,
-            userId: req.userId,
-            orgId: req.orgId,
-            agentName: req.agentName,
-            stepName: req.stepName,
-            provider: route.provider,
-            model: route.model,
-            tokensIn,
-            tokensOut,
-            latencyMs,
-            cacheHit: false,
-            costUsd,
-            timestamp: new Date().toISOString(),
-          });
-
-          metrics.recordCall({
-            provider: route.provider,
-            model: route.model,
-            tokensIn,
-            tokensOut,
-            latencyMs,
-            costUsd,
-            cacheHit: false,
-            success: true,
-          });
-        }
-
-        if (event.type === 'error') {
-          hasError = true;
-
-          await emitLlmCallFailed({
-            requestId,
-            workflowId: req.workflowId,
-            projectId: req.projectId,
-            userId: req.userId,
-            orgId: req.orgId,
-            agentName: req.agentName,
-            stepName: req.stepName,
-            provider: route.provider,
-            model: route.model,
-            error: event.data.message,
-            retryable: event.data.retryable ?? true,
-            timestamp: new Date().toISOString(),
-          });
-
-          metrics.recordCall({
-            provider: route.provider,
-            model: route.model,
-            tokensIn: 0,
-            tokensOut: 0,
-            latencyMs: 0,
-            costUsd: 0,
-            cacheHit: false,
-            success: false,
-          });
-        }
-
-        yield event;
+    for (const { provider, model } of providersToTry) {
+      const adapter = getAdapter(provider);
+      if (!adapter) {
+        log.warn('Skipping unavailable adapter', { requestId, provider, model });
+        continue;
       }
-    } catch (err: any) {
-      hasError = true;
 
-      yield {
-        type: 'error',
-        data: {
-          message: err.message ?? 'Unknown streaming error',
-          retryable: true,
-        },
-      };
+      log.info('Attempting stream with adapter', { requestId, provider, model });
+
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let latencyMs = 0;
+      let costUsd = 0;
+      let streamHadError = false;
+
+      try {
+        for await (const event of adapter.stream(req, model)) {
+          if (event.type === 'done') {
+            tokensIn = event.data.tokensIn;
+            tokensOut = event.data.tokensOut;
+            latencyMs = event.data.latencyMs;
+            costUsd = event.data.costUsd;
+
+            // Record tokens
+            if (req.userId) {
+              await quota.recordUserTokens(req.userId, tokensIn + tokensOut);
+            }
+            if (req.orgId) {
+              await quota.recordOrgTokens(req.orgId, tokensIn + tokensOut);
+            }
+
+            // Emit Kafka event
+            await emitLlmCallCompleted({
+              requestId,
+              workflowId: req.workflowId,
+              projectId: req.projectId,
+              userId: req.userId,
+              orgId: req.orgId,
+              agentName: req.agentName,
+              stepName: req.stepName,
+              provider,
+              model,
+              tokensIn,
+              tokensOut,
+              latencyMs,
+              cacheHit: false,
+              costUsd,
+              timestamp: new Date().toISOString(),
+            });
+
+            metrics.recordCall({
+              provider,
+              model,
+              tokensIn,
+              tokensOut,
+              latencyMs,
+              costUsd,
+              cacheHit: false,
+              success: true,
+            });
+          }
+
+          if (event.type === 'error') {
+            streamHadError = true;
+            log.error('Stream adapter error', { requestId, provider, model, error: event.data.message });
+
+            await emitLlmCallFailed({
+              requestId,
+              workflowId: req.workflowId,
+              projectId: req.projectId,
+              userId: req.userId,
+              orgId: req.orgId,
+              agentName: req.agentName,
+              stepName: req.stepName,
+              provider,
+              model,
+              error: event.data.message,
+              retryable: event.data.retryable ?? true,
+              timestamp: new Date().toISOString(),
+            });
+
+            metrics.recordCall({
+              provider,
+              model,
+              tokensIn: 0,
+              tokensOut: 0,
+              latencyMs: 0,
+              costUsd: 0,
+              cacheHit: false,
+              success: false,
+            });
+          }
+
+          yield event;
+        }
+
+        // If stream completed without error, we're done
+        if (!streamHadError) {
+          log.info('LLM stream completed successfully', { requestId, provider, model });
+          return;
+        }
+        // If there was an error, try next provider
+      } catch (err: any) {
+        log.error('Stream adapter exception', { requestId, provider, model, error: err.message });
+        // Try next provider in fallback chain
+        continue;
+      }
     }
+
+    // All providers failed
+    log.error('All stream providers failed', { requestId, taskType: req.taskType });
+    yield {
+      type: 'error',
+      data: {
+        message: 'All LLM providers failed for streaming',
+        retryable: true,
+      },
+    };
   }
 
   return { complete, stream };

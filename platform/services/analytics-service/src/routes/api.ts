@@ -6,11 +6,6 @@ import { listFlags, createFlag, updateFlag, evaluateFlag } from '../controllers/
 import { config } from '../config.js';
 
 async function verifyAdmin(request: any, reply: any) {
-  // In development, if no admin key is configured, allow all requests
-  if (config.adminApiKey === '') {
-    return;
-  }
-  
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return reply.status(401).send({ error: 'Unauthorized' });

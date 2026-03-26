@@ -15,10 +15,30 @@ const RunSchema = z.object({
   env: z.record(z.string()).optional()
 });
 
+// Package name validation patterns per manager (strict allowlist)
+const PACKAGE_NAME_PATTERNS: Record<string, RegExp> = {
+  // npm: scoped (@scope/name) or unscoped (name), no shell metacharacters
+  npm: /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
+  // pip: alphanumeric start/end, hyphens/dots/underscores in middle
+  pip: /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$/,
+  // cargo: alphanumeric start, hyphens/underscores allowed
+  cargo: /^[a-zA-Z][a-zA-Z0-9_-]*$/,
+  // go: domain/path pattern
+  go: /^[a-zA-Z0-9][a-zA-Z0-9-_.]*\/[a-zA-Z0-9/_.-]+$/,
+};
+
+function sanitizePackageName(pkg: string, manager: string): boolean {
+  const pattern = PACKAGE_NAME_PATTERNS[manager];
+  if (!pattern) return false;
+  // Block shell metacharacters regardless of pattern
+  if (/[;&|`$(){}[\]<>\\'"\s]/.test(pkg)) return false;
+  return pattern.test(pkg);
+}
+
 const InstallSchema = z.object({
   projectId: z.string().uuid(),
   packageManager: z.enum(['npm', 'pip', 'cargo', 'go']),
-  packages: z.array(z.string()).min(1)
+  packages: z.array(z.string().min(1).max(200)).min(1).max(50)
 });
 
 export const ExecutionController = {
@@ -38,14 +58,14 @@ export const ExecutionController = {
       });
 
       if (!collaborator) {
-        return reply.status(403).send({ error: 'Execute permission denied' });
+        return reply.status(403).send({ success: false, error: { message: 'Execute permission denied' } });
       }
 
       // Get VM from pool
       const vmId = await Prewarmer.acquireVM();
 
       if (!vmId) {
-        return reply.status(503).send({ error: 'No VMs available' });
+        return reply.status(503).send({ success: false, error: { message: 'No VMs available' } });
       }
 
       // Inject secrets
@@ -85,7 +105,7 @@ export const ExecutionController = {
       });
     } catch (error: any) {
       console.error('[Execution] Error:', error);
-      return reply.status(500).send({ error: error.message });
+      return reply.status(500).send({ success: false, error: { message: error.message } });
     }
   },
 
@@ -97,20 +117,30 @@ export const ExecutionController = {
 
       const jobId = uuidv4();
 
-      // Build install command
+      // Validate all package names before building command (prevent command injection)
+      const invalidPkgs = data.packages.filter(pkg => !sanitizePackageName(pkg, data.packageManager));
+      if (invalidPkgs.length > 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { message: `Invalid package name(s): ${invalidPkgs.join(', ')}. Names must match ${data.packageManager} conventions and contain no shell metacharacters.` }
+        });
+      }
+
+      // Build install command with validated package names
+      const pkgs = data.packages.join(' ');
       let command: string;
       switch (data.packageManager) {
         case 'npm':
-          command = `npm install ${data.packages.join(' ')}`;
+          command = `npm install ${pkgs}`;
           break;
         case 'pip':
-          command = `pip install ${data.packages.join(' ')}`;
+          command = `pip install ${pkgs}`;
           break;
         case 'cargo':
-          command = `cargo add ${data.packages.join(' ')}`;
+          command = `cargo add ${pkgs}`;
           break;
         case 'go':
-          command = `go get ${data.packages.join(' ')}`;
+          command = `go get ${pkgs}`;
           break;
       }
 
@@ -127,7 +157,7 @@ export const ExecutionController = {
       });
     } catch (error: any) {
       console.error('[Install] Error:', error);
-      return reply.status(500).send({ error: error.message });
+      return reply.status(500).send({ success: false, error: { message: error.message } });
     }
   },
 
@@ -166,7 +196,7 @@ export const ExecutionController = {
       });
     } catch (error: any) {
       console.error('[History] Error:', error);
-      return reply.status(500).send({ error: error.message });
+      return reply.status(500).send({ success: false, error: { message: error.message } });
     }
   },
 
@@ -186,7 +216,7 @@ export const ExecutionController = {
       return reply.send({ success: true });
     } catch (error: any) {
       console.error('[Terminate] Error:', error);
-      return reply.status(500).send({ error: error.message });
+      return reply.status(500).send({ success: false, error: { message: error.message } });
     }
   },
 
@@ -198,7 +228,7 @@ export const ExecutionController = {
       const vmId = await redis.get(RedisKeys.vmProject(project_id as string));
 
       if (!vmId) {
-        return reply.status(404).send({ error: 'No active VM for project' });
+        return reply.status(404).send({ success: false, error: { message: 'No active VM for project' } });
       }
 
       await SnapshotManager.hibernateVM(vmId, project_id as string);
@@ -208,7 +238,7 @@ export const ExecutionController = {
       return reply.send({ success: true, message: 'VM hibernated' });
     } catch (error: any) {
       console.error('[Hibernate] Error:', error);
-      return reply.status(500).send({ error: error.message });
+      return reply.status(500).send({ success: false, error: { message: error.message } });
     }
   }
 };

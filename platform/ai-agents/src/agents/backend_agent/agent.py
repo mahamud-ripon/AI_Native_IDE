@@ -59,7 +59,7 @@ Generate complete backend code for this project. For each file:
 def _get_stub_output() -> CodeOutput:
     """Return stub output for offline mode."""
     return CodeOutput(
-        files={
+        create_files={
             "src/main.py": '''from fastapi import FastAPI
 
 app = FastAPI()

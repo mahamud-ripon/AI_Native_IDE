@@ -17,6 +17,8 @@ import {
   ExecutionTaskOptions,
 } from '../execution/index.js';
 import { config } from '../config.js';
+import { getLLMGateway } from '../llm/gateway.js';
+import { prisma } from '@workspace/database';
 
 // Redis for rate limiting
 const redis = new Redis(config.redisUrl);
@@ -24,6 +26,261 @@ const redis = new Redis(config.redisUrl);
 // Rate limit configuration
 const RATE_LIMIT_WINDOW_SECONDS = 60; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per window
+
+// ========================================
+// PROMPT CLASSIFICATION
+// ========================================
+
+const VAGUE_PATTERNS = [
+  /^\s*(hi|hello|hey|sup|yo|hiya)\s*[!.?]*\s*$/i,
+  /^\s*how are you\s*[?]*\s*$/i,
+  /^\s*what (can|do) you do\s*[?]*\s*$/i,
+  /^\s*(thanks|thank you|ty)\s*[!.]*\s*$/i,
+  /^\s*(help|help me)\s*[!.?]*\s*$/i,
+  /^\s*(ok|okay|sure|cool|nice|great)\s*[!.]*\s*$/i,
+];
+
+/**
+ * Check if prompt is an obvious short greeting.
+ * Only returns true for clear-cut cases; everything else goes to the LLM classifier.
+ */
+function isVagueGreeting(prompt: string): boolean {
+  const p = prompt.trim();
+  for (const pattern of VAGUE_PATTERNS) {
+    if (pattern.test(p)) return true;
+  }
+  return false;
+}
+
+/**
+ * Classify intent using LLM Gateway (fast model).
+ * Falls back to rule-based if LLM fails.
+ */
+async function classifyIntent(
+  prompt: string,
+  chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<'CHITCHAT' | 'WORKFLOW'> {
+  // Fast path: only short-circuit for obvious greetings
+  if (isVagueGreeting(prompt)) return 'CHITCHAT';
+
+  try {
+    const gateway = await getLLMGateway();
+
+    // Build classification messages with optional history for context
+    const systemContent = chatHistory && chatHistory.length > 0
+      ? `You are an intent classifier for an AI coding assistant. Classify the user's message as CHITCHAT or WORKFLOW.
+
+CHITCHAT: greetings, questions about the AI, asking how it works, small talk, opinions, "what can you do", "tell me about", casual conversation, asking for explanations or advice
+WORKFLOW: ONLY when the user explicitly asks to CREATE, BUILD, GENERATE, WRITE, ADD, MODIFY, FIX, DELETE, DEPLOY, or REFACTOR actual code, files, or projects
+
+Important rules:
+- Questions like "what is X?" or "how does X work?" are CHITCHAT
+- "build me a project" is WORKFLOW but "how to build a project?" is CHITCHAT
+- If the user is repeating themselves, classify as CHITCHAT
+- When in doubt, classify as CHITCHAT
+
+Reply with exactly one word: CHITCHAT or WORKFLOW`
+      : `You are an intent classifier for an AI coding assistant. Classify the user's message as CHITCHAT or WORKFLOW.
+
+CHITCHAT: greetings, questions about the AI, asking how it works, small talk, opinions, "what can you do", "tell me about", casual conversation, asking for explanations or advice
+WORKFLOW: ONLY when the user explicitly asks to CREATE, BUILD, GENERATE, WRITE, ADD, MODIFY, FIX, DELETE, DEPLOY, or REFACTOR actual code, files, or projects
+
+Important rules:
+- Questions like "what is X?" or "how does X work?" are CHITCHAT
+- "build me a project" is WORKFLOW but "how to build a project?" is CHITCHAT
+- When in doubt, classify as CHITCHAT
+
+Reply with exactly one word: CHITCHAT or WORKFLOW`;
+
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemContent },
+    ];
+
+    // Append recent history (last 4 messages) for context
+    if (chatHistory && chatHistory.length > 0) {
+      for (const entry of chatHistory.slice(-4)) {
+        messages.push({ role: entry.role, content: entry.content });
+      }
+    }
+
+    messages.push({ role: 'user', content: prompt });
+
+    const response = await gateway.complete({
+      workflowId: 'intent-classifier',
+      projectId: 'system',
+      agentName: 'classifier',
+      stepName: 'classify',
+      taskType: 'chat',
+      messages,
+      maxTokens: 10,
+    });
+    const result = response.outputText.trim().toUpperCase();
+    console.log(`[classifyIntent] LLM classified "${prompt.slice(0, 50)}..." as ${result} (provider: ${response.provider})`);
+    return result.includes('WORKFLOW') ? 'WORKFLOW' : 'CHITCHAT';
+  } catch (err: any) {
+    console.warn(`[classifyIntent] LLM failed (${err.message}), defaulting to CHITCHAT`);
+    return 'CHITCHAT';
+  }
+}
+
+/**
+ * Handle CHITCHAT: stream a chat response directly from LLM Gateway.
+ */
+/**
+ * Handle CHITCHAT: collect full response and return as JSON.
+ * The frontend's sendToAIService expects a JSON response with { type: 'chat' }.
+ */
+async function handleChitchat(
+  prompt: string,
+  userId: string,
+  projectId: string,
+  reply: FastifyReply,
+  chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  workspaceContext?: {
+    fileTree?: string[];
+    activeFile?: string | null;
+    activeFileContent?: string | null;
+    openTabs?: string[];
+  }
+): Promise<void> {
+  const taskId = `chat_${Date.now()}`;
+  let fullContent = '';
+  let chunkCount = 0;
+  let errorDetail: string | null = null;
+  let providerName: string | undefined;
+
+  try {
+    const gateway = await getLLMGateway();
+
+    // Build workspace context block for the system prompt
+    let workspaceBlock = '';
+    if (workspaceContext) {
+      const parts: string[] = [];
+
+      if (workspaceContext.fileTree && workspaceContext.fileTree.length > 0) {
+        const fileList = workspaceContext.fileTree.slice(80).map(f => `  ${f}`).join('\n');
+        parts.push(`PROJECT FILES (${workspaceContext.fileTree.length} total):\n${fileList}`);
+      }
+
+      if (workspaceContext.activeFile) {
+        parts.push(`ACTIVE FILE: ${workspaceContext.activeFile}`);
+      }
+
+      if (workspaceContext.activeFileContent) {
+        const content = workspaceContext.activeFileContent.slice(0, 8000);
+        parts.push(`ACTIVE FILE CONTENT:\n\`\`\`\n${content}\n\`\`\``);
+      }
+
+      if (workspaceContext.openTabs && workspaceContext.openTabs.length > 0) {
+        parts.push(`OPEN TABS: ${workspaceContext.openTabs.join(', ')}`);
+      }
+
+      if (parts.length > 0) {
+        workspaceBlock = `\n\n## Workspace Context\n${parts.join('\n\n')}`;
+      }
+    }
+
+    // Build system prompt with workspace awareness
+    const systemPrompt = `You are Bolt, a friendly AI coding assistant in a cloud IDE.${workspaceBlock}
+
+IMPORTANT INSTRUCTIONS:
+- You CAN see the user's project files listed above. Reference them by name when relevant.
+- For greetings and small talk, respond warmly and briefly. Do NOT generate code for greetings.
+- When the user asks about their files or project, refer to the file list you can see.
+- If the user asks "what files do I have?" or "what can you see?", list the files from the PROJECT FILES section.
+- Only generate code when explicitly asked to build or modify something.
+- If generating code, consider existing files to avoid duplicates.`;
+
+    // Build messages with optional context from chat history
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+    ];
+
+    // Append recent chat history (last 6 messages) for context awareness
+    if (chatHistory && chatHistory.length > 0) {
+      for (const entry of chatHistory.slice(-6)) {
+        messages.push({ role: entry.role, content: entry.content });
+      }
+    }
+
+    messages.push({ role: 'user', content: prompt });
+
+    for await (const chunk of gateway.stream({
+      workflowId: taskId,
+      projectId,
+      agentName: 'chat',
+      stepName: 'respond',
+      taskType: 'chat',
+      messages,
+      maxTokens: 1024,
+      userId,
+    })) {
+      chunkCount++;
+
+      if (chunk.type === 'meta') {
+        providerName = chunk.data.provider;
+        console.log(`[handleChitchat] Stream started: provider=${chunk.data.provider}, model=${chunk.data.model}`);
+      }
+
+      if (chunk.type === 'chunk') {
+        fullContent += chunk.data.textDelta;
+        console.log(`[handleChitchat] chunk #${chunkCount}: "${chunk.data.textDelta.slice(0, 40)}..."`);
+      }
+
+      if (chunk.type === 'done') {
+        console.log(`[handleChitchat] Stream done: tokensIn=${chunk.data.tokensIn}, tokensOut=${chunk.data.tokensOut}, latency=${chunk.data.latencyMs}ms`);
+      }
+
+      if (chunk.type === 'error') {
+        errorDetail = chunk.data.message;
+        console.error(`[handleChitchat] Stream error chunk: ${chunk.data.message}, retryable=${chunk.data.retryable}`);
+        break;
+      }
+    }
+
+    console.log(`[handleChitchat] Stream finished: totalChunks=${chunkCount}, contentLength=${fullContent.length}, provider=${providerName ?? 'unknown'}`);
+  } catch (err: any) {
+    errorDetail = err?.message ?? 'Unknown LLM error';
+    console.error('[handleChitchat] LLM exception:', err.message, err.stack);
+  }
+
+  // Determine response: real content > error message > fallback prompt
+  let responseMessage: string;
+  let responseStatus: 'completed' | 'error' = 'completed';
+
+  if (fullContent.trim()) {
+    // Real LLM response
+    responseMessage = fullContent;
+  } else if (errorDetail) {
+    // LLM failed — surface the error, don't fake success
+    responseMessage = `Sorry, I couldn't process your message right now. The AI service reported: ${errorDetail}`;
+    responseStatus = 'error';
+  } else {
+    // Empty response with no error (shouldn't happen with mock fallback, but defensive)
+    responseMessage = 'I received your message but could not generate a response. Please try again or rephrase your question.';
+    responseStatus = 'error';
+  }
+
+  // Persist assistant response to DB (fire-and-forget)
+  try {
+    const dbConvId = await getOrCreateConversation(projectId, userId, prompt);
+    if (dbConvId) await saveMessage(dbConvId, 'assistant', responseMessage);
+  } catch (err: any) {
+    console.warn('[handleChitchat] Failed to persist assistant message:', err.message);
+  }
+
+  reply.code(200).send({
+    taskId,
+    type: 'chat',
+    status: responseStatus,
+    message: responseMessage,
+    _meta: {
+      provider: providerName,
+      chunkCount,
+      wasFallback: !fullContent.trim(),
+    },
+  });
+}
 
 /**
  * Check rate limit for user
@@ -59,17 +316,99 @@ async function checkRateLimit(userId: string): Promise<{ allowed: boolean; remai
   };
 }
 
+// ========================================
+// CHAT PERSISTENCE (Database)
+// ========================================
+
+/**
+ * Get or create an ai_conversation row for a project+user pair.
+ * Reuses the most recent active conversation within 24h.
+ * Falls back gracefully if user doesn't exist in DB.
+ */
+async function getOrCreateConversation(
+  projectId: string,
+  userId: string,
+  firstMessage: string
+): Promise<string | null> {
+  // Verify user exists before creating conversation (avoid FK constraint violation)
+  const userExists = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+  if (!userExists) {
+    console.warn(`[getOrCreateConversation] User ${userId} not found in DB, skipping persistence`);
+    return null;
+  }
+
+  // Try to find an existing active conversation for this project (within 24h)
+  const recent = await prisma.aiConversation.findFirst({
+    where: {
+      projectId,
+      userId,
+      status: { in: ['pending', 'running'] },
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (recent) return recent.id;
+
+  // Create a new conversation
+  const conv = await prisma.aiConversation.create({
+    data: {
+      projectId,
+      userId,
+      title: firstMessage.slice(0, 100),
+      initialPrompt: firstMessage,
+      status: 'running',
+    },
+  });
+  return conv.id;
+}
+
+/**
+ * Save a message to the ai_messages table.
+ */
+async function saveMessage(
+  conversationId: string,
+  role: 'user' | 'assistant' | 'system',
+  content: string,
+  tokensUsed?: number
+): Promise<void> {
+  if (!content.trim()) return;
+  try {
+    await prisma.aiMessage.create({
+      data: {
+        conversationId,
+        role,
+        content,
+        tokensUsed: tokensUsed ?? null,
+      },
+    });
+  } catch (err: any) {
+    console.error(`[saveMessage] Failed to save ${role} message:`, err.message);
+  }
+}
+
 // Request schemas
 interface CreateTaskBody {
   projectId: string;
   workspaceId: string;
   instruction: string;
   conversationId?: string;
+  chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   branch?: string;
   priority?: ExecutionTaskPriority;
   agentName?: string;
   workflowRunId?: string;
   options?: ExecutionTaskOptions;
+  // Workspace context from IDE
+  workspaceContext?: {
+    fileTree?: string[];           // List of file paths in the project
+    activeFile?: string | null;    // Currently open file path
+    activeFileContent?: string | null; // Content of the active file
+    openTabs?: string[];           // List of open file tabs
+  };
   // Execution metadata for observability
   metadata?: {
     agent?: string;
@@ -157,11 +496,38 @@ async function createTask(
     return;
   }
 
-  const { projectId, workspaceId, instruction, conversationId, branch, priority, agentName, workflowRunId, options, metadata } = request.body;
+  const { projectId, workspaceId, instruction, conversationId, chatHistory, workspaceContext, branch, priority, agentName, workflowRunId, options, metadata } = request.body;
 
   if (!projectId || !workspaceId || !instruction) {
     reply.code(400).send({ error: 'Missing required fields: projectId, workspaceId, instruction' });
     return;
+  }
+
+  // ========================================
+  // PERSISTENCE: Save user message to DB
+  // ========================================
+  let dbConversationId: string | null = null;
+  try {
+    dbConversationId = await getOrCreateConversation(projectId, userId, instruction);
+    if (dbConversationId) await saveMessage(dbConversationId, 'user', instruction);
+  } catch (err: any) {
+    console.warn('[createTask] Failed to persist user message:', err.message);
+  }
+
+  // ========================================
+  // INTENT CLASSIFICATION: CHITCHAT vs WORKFLOW
+  // ========================================
+  try {
+    const intent = await classifyIntent(instruction, chatHistory);
+
+    if (intent === 'CHITCHAT') {
+      // Return chat response directly — don't create a task
+      await handleChitchat(instruction, userId, projectId, reply, chatHistory, workspaceContext);
+      return;
+    }
+  } catch (err: any) {
+    console.error('[createTask] Intent classification failed:', err.message);
+    // Fall through to create a task (WORKFLOW)
   }
 
   const taskService = getExecutionTaskService();
@@ -448,9 +814,48 @@ async function retryTask(
 }
 
 /**
+ * Get chat history for a project
+ * GET /ai/chat/history/:projectId
+ * Returns recent conversations with their messages
+ */
+async function getChatHistory(
+  request: FastifyRequest<{ Params: { projectId: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const { projectId } = request.params;
+  let userId = request.headers['x-user-id'] as string;
+  if (!userId) userId = 'default-user';
+
+  try {
+    const conversations = await prisma.aiConversation.findMany({
+      where: {
+        projectId,
+        userId,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          take: 100,
+        },
+      },
+    });
+
+    reply.send({ conversations });
+  } catch (err: any) {
+    console.error('[getChatHistory] Error:', err.message);
+    reply.code(500).send({ error: 'Failed to load chat history' });
+  }
+}
+
+/**
  * Register execution routes
  */
 export async function registerExecutionRoutes(fastify: FastifyInstance): Promise<void> {
+  // Chat history
+  fastify.get('/ai/chat/history/:projectId', getChatHistory);
+
   // Create task
   fastify.post('/ai/execution/tasks', createTask);
 

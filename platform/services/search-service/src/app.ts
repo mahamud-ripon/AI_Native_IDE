@@ -36,10 +36,12 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Circuit breaker health check
   app.get('/health/circuit-breaker', async (request, reply) => {
+    const esHealth = await IndexManager.healthCheck();
     return reply.send({
-      status: 'closed',
-      failures: 0,
-      nextAttempt: 0,
+      success: true,
+      data: {
+        elasticsearch: { state: esHealth.status === 'healthy' ? 'closed' : 'open' },
+      },
     });
   });
 

@@ -33,12 +33,12 @@ export const config = {
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-super-secret-key-change-in-production',
+    secret: process.env.JWT_SECRET || (() => { throw new Error('JWT_SECRET env var is required'); })(),
     expiresIn: process.env.JWT_EXPIRES_IN || '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   },
 
-  internalApiKey: process.env.INTERNAL_API_KEY || 'internal-api-key',
+  internalApiKey: process.env.INTERNAL_API_KEY || (() => { throw new Error('INTERNAL_API_KEY env var is required'); })(),
   
   storage: {
     // Always use S3 - no inline storage per DEVELOPMENT_LOGIC.md Priority 1.1

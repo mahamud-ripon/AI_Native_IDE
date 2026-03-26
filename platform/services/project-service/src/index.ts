@@ -41,3 +41,12 @@ async function start() {
 }
 
 start();
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled Rejection', { reason });
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception', { error });
+  process.exit(1);
+});

@@ -10,6 +10,11 @@ export {
 } from './workspace_fs.js';
 
 export {
+  RemoteWorkspaceFS,
+  createRemoteWorkspace,
+} from './remote_workspace_fs.js';
+
+export {
   FileEntry,
   SearchResult,
   PatchResult,

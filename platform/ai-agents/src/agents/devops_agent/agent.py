@@ -51,7 +51,7 @@ Generate DevOps configurations for this project:
 def _get_stub_output() -> CodeOutput:
     """Return stub output for offline mode."""
     return CodeOutput(
-        files={
+        create_files={
             "Dockerfile": '''FROM python:3.11-slim
 
 WORKDIR /app
