@@ -51,6 +51,13 @@ export function createMetricsCollector(): LLMMetricsCollector {
       openai: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
       anthropic: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
       groq: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      deepseek: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      siliconflow: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      nvidia: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      xiaomi: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      openrouter: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      huggingface: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
+      google: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
       mock: { calls: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, avgLatencyMs: 0 },
     },
   };

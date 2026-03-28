@@ -21,12 +21,21 @@ export interface CreateExecutionTaskRequest {
   options?: ExecutionTaskOptions;
   // Execution metadata for observability
   metadata?: ExecutionTaskMetadata;
+  // Workspace context from frontend (for one-shot accuracy)
+  workspaceContext?: {
+    fileTree?: string[];
+    activeFile?: string | null;
+    activeFileContent?: string | null;
+    openTabs?: string[];
+  };
 }
 
 // Execution metadata for observability, debugging, and analytics
 export interface ExecutionTaskMetadata {
   /** Agent that initiated this task */
   agent?: string;
+  /** Frontend intent classification */
+  intent?: 'conversation' | 'simple_edit' | 'complex_build';
   /** Workflow stage (e.g., 'backend', 'frontend', 'testing') */
   workflowStage?: string;
   /** Request ID for tracing */
@@ -50,6 +59,8 @@ export interface ExecutionTaskOptions {
   dryRun?: boolean;
   sandboxChecks?: ('syntax' | 'typecheck' | 'lint' | 'dependency' | 'test' | 'build')[];
   maxFilesModified?: number;
+  mode?: 'direct' | 'plan_execute' | 'multi_agent';
+  modelHint?: string;
 }
 
 // Task entity (from database)
@@ -167,6 +178,12 @@ export interface ExecutionTaskMessage {
   maxRetries: number;
   userId?: string;
   rootPath?: string;
+  workspaceContext?: {
+    fileTree?: string[];
+    activeFile?: string | null;
+    activeFileContent?: string | null;
+    openTabs?: string[];
+  };
 }
 
 // Kafka event message

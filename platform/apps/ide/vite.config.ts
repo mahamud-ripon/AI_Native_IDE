@@ -18,7 +18,15 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     proxy: {
+      '/api/v1': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/api/ai': {
         target: 'http://localhost:8003',
         changeOrigin: true,
@@ -28,6 +36,16 @@ export default defineConfig({
         target: 'ws://localhost:8003',
         ws: true,
         rewrite: (path) => path.replace(/^\/ws\/ai/, '/ws'),
+      },
+      '/ws/exec': {
+        target: 'ws://localhost:8004',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/ws\/exec/, '/api/v1/exec/ws'),
+      },
+      '/ws/collab': {
+        target: 'ws://localhost:8005',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/ws\/collab/, '/api/v1/collab/ws'),
       },
     },
   },
@@ -44,5 +62,12 @@ export default defineConfig({
         }
       }
     }
+  },
+  preview: {
+    port: 4173,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   }
 });

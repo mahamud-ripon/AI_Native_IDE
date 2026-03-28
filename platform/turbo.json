@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
   "globalDependencies": [
     ".env",
     ".env.local",
@@ -13,12 +14,13 @@
     "JWT_SECRET",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
-    "GROQ_API_KEY"
+    "GROQ_API_KEY",
+    "DEEPSEEK_API_KEY"
   ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", ".env", "tsconfig.json", "package.json"],
+      "inputs": ["$TURBO_DEFAULT$", ".env"],
       "outputs": ["dist/**", ".next/**", "build/**", "coverage/**"],
       "cache": true,
       "persistent": false
@@ -29,13 +31,12 @@
       "persistent": true
     },
     "lint": {
-      "dependsOn": ["^build"],
       "cache": true,
       "outputs": []
     },
     "test": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "vitest.config.ts"],
+      "inputs": ["$TURBO_DEFAULT$"],
       "cache": true,
       "outputs": ["coverage/**"]
     },

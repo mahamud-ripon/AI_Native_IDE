@@ -2,7 +2,10 @@ import { workspaceFileRegistry, type WorkspaceFileEntry, addFilesToRegistry } fr
 import { editorModelManager } from '../core/editor/modelManager';
 import { ensureContainer } from '../core/runtime/webcontainerManager';
 
-const API_BASE = '/api/v1';
+import { apiConfig } from '../lib/apiConfig';
+
+const API_BASE = '/api/v1'; // Still useful for relative proxying
+const FULL_API_BASE = apiConfig.baseUrl + '/api/v1';
 
 export interface WorkspaceService {
   listFiles: (projectId: string) => Promise<WorkspaceFileEntry[]>;
@@ -350,6 +353,20 @@ class RemoteWorkspaceService implements WorkspaceService {
   }
 }
 
-// Use RemoteWorkspaceService for real cloud IDE (S3/MinIO storage)
-// Change to LocalWorkspaceService for demo mode (browser WebContainer)
-export const workspaceService: WorkspaceService = new RemoteWorkspaceService();
+// Factory to get appropriate workspace service
+// Returns BrowserWorkspaceService for browser projects
+// Returns RemoteWorkspaceService for cloud projects
+export async function getWorkspaceService(projectType: 'browser' | 'cloud'): Promise<WorkspaceService> {
+  if (projectType === 'browser') {
+    // Dynamic import to avoid circular dependencies
+    const { browserWorkspaceService } = await import('./browserWorkspaceService');
+    return browserWorkspaceService;
+  }
+  return remoteWorkspaceService;
+}
+
+// Export remote service for direct access
+export const remoteWorkspaceService = new RemoteWorkspaceService();
+
+// Default export for backwards compatibility
+export const workspaceService: WorkspaceService = remoteWorkspaceService;

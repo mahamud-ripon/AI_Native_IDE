@@ -30,7 +30,7 @@ import { aiDecorations } from '../editor/aiDecorations';
 import { patchValidator, ValidationResult } from '../editor/patchValidator';
 import { useExecutionStore } from '../../state/executionStore';
 import { useAIChatStore } from '../../state/aiChatStore';
-import { useIDEStore, FileNode } from '../../stores/ideStore';
+import { useIDEStore, FileNode, ideEventBus } from '../../stores/ideStore';
 import { logger } from '../../lib/logger';
 
 // ========================================
@@ -109,6 +109,7 @@ export interface SubmitTaskOptions {
   projectId: string;
   workspaceId: string;
   conversationId?: string;
+  modelHint?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -517,6 +518,7 @@ class AICodingController {
           projectId: options.projectId,
           workspaceId: options.workspaceId,
           instruction: options.instruction,
+          modelHint: options.modelHint,
           chatHistory,
           workspaceContext: {
             fileTree,
@@ -769,6 +771,14 @@ class AICodingController {
                 status: 'complete',
               });
             }
+
+            // Refresh the file explorer so AI-created files appear immediately.
+            // FileExplorerPanel listens to 'file:created' on the ideEventBus and
+            // re-fetches the tree from the API. This bypasses the unreliable
+            // Kafka → Redis → WebSocket pipeline in development.
+            if (filesModifiedList.length > 0) {
+              ideEventBus.emit('file:created', { path: filesModifiedList[0] ?? '' });
+            }
           } else {
             // Failed / timeout / cancelled
             this.forceState(sessionId, 'FAILED', `task ${status} (poll)`);
@@ -827,6 +837,15 @@ class AICodingController {
       case 'completed':
         this.transitionState(sessionId, 'COMPLETED', 'task completed');
         this.updateAssistantMessage(session, task);
+        
+        // Refresh file tree to ensure all changes are visible
+        task.filesModified.forEach(filePath => {
+          ideEventBus.emit('file:created', { path: filePath });
+        });
+        if (task.filesModified.length === 0) {
+          ideEventBus.emit('tree:refresh', { path: '' });
+        }
+
         // Clear decorations for this task
         if (session.taskId) {
           editorManager.clearDecorationsForTask(session.taskId);

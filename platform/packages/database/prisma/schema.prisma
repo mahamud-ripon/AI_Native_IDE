@@ -702,7 +702,25 @@ model CodeEmbedding {
 }
 
 // -----------------------------------------------------------------------------
-// EXECUTION & DEPLOYMENTS
+// PLATFORM CONFIG (Admin-controlled runtime settings)
+// -----------------------------------------------------------------------------
+
+model PlatformConfig {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  configKey   String   @unique @map("config_key") @db.VarChar(100)
+  configValue Json     @map("config_value")
+  category    String   @default("general") @db.VarChar(50)
+  description String?  @db.Text
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([category])
+  @@map("platform_config")
+}
+
+// -----------------------------------------------------------------------------
+// EXECUTION TASKS
 // -----------------------------------------------------------------------------
 
 model CodeExecution {

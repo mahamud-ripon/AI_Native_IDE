@@ -85,6 +85,12 @@ interface AIChatState {
   input: string;
   isSending: boolean;
 
+  // Model selection
+  selectedModel: string | null;
+  availableModels: Array<{ provider: string; model: string; label: string }>;
+  setSelectedModel: (model: string) => void;
+  loadAvailableModels: () => Promise<void>;
+
   // Current mode - distinguishes chat from build
   mode: 'idle' | 'chatting' | 'building';
   setMode: (mode: 'idle' | 'chatting' | 'building') => void;
@@ -128,10 +134,36 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   activeConversationId: null,
   input: '',
   isSending: false,
+  selectedModel: null,
+  availableModels: [],
   mode: 'idle',
 
   // Mode actions
   setMode: (mode) => set({ mode }),
+
+  // Model actions
+  setSelectedModel: (model) => set({ selectedModel: model }),
+
+  loadAvailableModels: async () => {
+    try {
+      const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+      const response = await fetch(`${apiConfig.baseUrl}/admin/ai/models`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && Array.isArray(data.data)) {
+          set({ availableModels: data.data });
+          // Set default model if not selected
+          if (!get().selectedModel && data.data.length > 0) {
+            set({ selectedModel: `${data.data[0].provider}/${data.data[0].model}` });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[AIChat] Failed to load available models:', err);
+    }
+  },
 
   // Conversation actions
   createConversation: (projectId, workspaceId) => {
@@ -391,6 +423,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   },
 
   // Load chat history from backend database
+  // bolt.new approach: All projects are cloud projects with UUID
   loadHistory: async (projectId: string) => {
     try {
       const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
@@ -678,6 +711,7 @@ async function sendToAIService(
         workspaceId,
         instruction: input,
         chatHistory,
+        model: state.selectedModel, // User-selected model (provider/model format)
         workspaceContext: {
           fileTree,
           activeFile,
@@ -823,6 +857,7 @@ async function sendToAIAgents(
 
       const decoder = new TextDecoder();
       let fullContent = '';
+      let logContent = '';
       let currentAgent = '';
 
       while (true) {
@@ -839,23 +874,24 @@ async function sendToAIAgents(
           // Handle different event types
           switch (event.event_type) {
             case 'workflow_start':
+              logContent = '🚀 **Starting development workflow...**\n\n';
               state.updateMessage(conversationId, assistantMessageId, {
-                content: 'Starting development workflow...',
+                content: logContent,
               });
               break;
               
             case 'agent_start':
-              currentAgent = event.agent_name || '';
+              currentAgent = (event.agent_name || 'Agent').replace('_agent', '').toUpperCase();
+              const agentMsg = event.message || 'Starting work...';
+              logContent += `⏳ **${currentAgent}**: ${agentMsg}\n`;
               state.updateMessage(conversationId, assistantMessageId, {
-                content: `Running ${currentAgent}... ${event.message || ''}`,
+                content: logContent,
               });
               break;
               
             case 'agent_progress':
-              const progress = event.data?.progress || 0;
-              state.updateMessage(conversationId, assistantMessageId, {
-                content: `${currentAgent}: ${progress}% - ${event.message || ''}`,
-              });
+              // Progress updates - update the current agent's line if possible, or just log
+              // For simplicity, we'll just log major milestones
               break;
               
             case 'token':
@@ -863,21 +899,32 @@ async function sendToAIAgents(
               const token = event.data?.token || '';
               fullContent += token;
               state.updateMessage(conversationId, assistantMessageId, {
-                content: fullContent + '▋',
+                content: logContent + '\n---\n\n' + fullContent + '▋',
                 status: 'streaming',
               });
               break;
               
             case 'agent_complete':
               const output = event.data?.output;
+              const agentName = (event.agent_name || 'Agent').replace('_agent', '').toUpperCase();
+              logContent += `✅ **${agentName}**: Work completed.\n`;
+              
               if (output) {
                 const outputStr = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
                 fullContent += '\n\n' + outputStr;
               }
               state.updateMessage(conversationId, assistantMessageId, {
-                content: fullContent,
+                content: logContent + '\n---\n\n' + fullContent,
                 status: 'streaming',
               });
+              
+              // Handle file creation/modification tracking from agent output
+              if (event.data?.files_modified && Array.isArray(event.data.files_modified)) {
+                event.data.files_modified.forEach((filePath: string) => {
+                   ideEventBus.emit('file:created', { path: filePath });
+                   useIDEStore.getState().openTab(filePath, '');
+                });
+              }
               break;
               
             case 'workflow_complete':
@@ -894,6 +941,14 @@ async function sendToAIAgents(
                   tokens: Number(event.data?.tokens_out) || undefined,
                 },
               });
+
+              // Final check for file modifications
+              if (event.data?.files_modified && Array.isArray(event.data.files_modified)) {
+                event.data.files_modified.forEach((filePath: string) => {
+                   ideEventBus.emit('file:created', { path: filePath });
+                   useIDEStore.getState().openTab(filePath, '');
+                });
+              }
               break;
               
             case 'workflow_error':

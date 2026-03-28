@@ -5,7 +5,14 @@
  * Covers task orchestration, sandbox validation, and rollback management.
  */
 
-import { AgentResult, AgentProgressEvent } from '../agent/agent_types.js';
+import type {
+  AgentResult,
+  AgentProgressEvent,
+  AgentMode,
+  TaskComplexity,
+  ToolIntent,
+  ToolName,
+} from '../agent/agent_types.js';
 
 // Task status
 export type TaskStatus =
@@ -37,14 +44,40 @@ export type SnapshotStatus =
   | 'failed'
   | 'expired';
 
+export interface TaskRoutingHints {
+  complexity?: TaskComplexity;
+  toolIntent?: ToolIntent;
+  contextFiles?: string[];
+}
+
+export interface TaskModeDecision {
+  mode: AgentMode;
+  reason: string;
+  complexity: TaskComplexity;
+  modelConfig: { provider: string; model: string };
+  maxTurns: number;
+  availableTools: ToolName[];
+  selectedTools: ToolName[];
+  toolIntent?: ToolIntent;
+}
+
 // Coding task request
 export interface CodingTaskRequest {
   id: string;
   workspaceId: string;
   prompt: string;
   userId: string;
+  mode?: AgentMode;                   // direct | plan_execute | multi_agent (auto-detected if not set)
+  modelHint?: string;                 // User-selected model from IDE (e.g., "nvidia/meta/llama-3.1-8b-instruct")
   options?: CodingTaskOptions;
+  routing?: TaskRoutingHints;
   metadata?: Record<string, unknown>;
+  workspaceContext?: {
+    fileTree?: string[];
+    activeFile?: string | null;
+    activeFileContent?: string | null;
+    openTabs?: string[];
+  };
   createdAt: Date;
 }
 
@@ -65,6 +98,8 @@ export interface CodingTaskResult {
   taskId: string;
   success: boolean;
   status: TaskStatus;
+  modeUsed?: AgentMode;               // Which mode was actually used
+  modeDecision?: TaskModeDecision;
   agentResult?: AgentResult;
   sandboxResult?: SandboxResult;
   snapshotId?: string;
@@ -175,6 +210,8 @@ export interface TaskProgressEvent {
   stage: string;
   message: string;
   agentProgress?: AgentProgressEvent;
+  modeDecision?: TaskModeDecision;
+  details?: Record<string, unknown>;
   timestamp: Date;
 }
 
@@ -230,7 +267,7 @@ export const SANDBOX_DEFAULTS: Required<SandboxConfig> = {
 } as const;
 
 export const ROLLBACK_DEFAULTS: Required<RollbackConfig> = {
-  snapshotDir: '.ai-ide/snapshots',
+  snapshotDir: 'ai-ide-snapshots',
   maxSnapshots: 10,
   retentionMs: 24 * 60 * 60 * 1000, // 24 hours
   compressionEnabled: true,

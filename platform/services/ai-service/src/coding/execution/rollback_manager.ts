@@ -8,6 +8,7 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as crypto from 'crypto';
+import * as os from 'os';
 import {
   SnapshotMetadata,
   SnapshotFileInfo,
@@ -274,7 +275,8 @@ export class RollbackManager {
    * Get snapshots directory for workspace
    */
   private getSnapshotsDir(workspacePath: string): string {
-    return path.join(workspacePath, this.config.snapshotDir);
+    const wsHash = crypto.createHash('md5').update(workspacePath).digest('hex').slice(0, 8);
+    return path.join(os.tmpdir(), this.config.snapshotDir, `ws_${wsHash}`);
   }
 
   /**

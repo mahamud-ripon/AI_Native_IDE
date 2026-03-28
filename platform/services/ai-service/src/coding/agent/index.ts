@@ -54,12 +54,23 @@ export {
   getToolRouter,
   createToolRouter,
   executeTool,
+  executeParsedToolCalls,
 } from './tool_router.js';
+
+// Direct Agent (Mode 1)
+export { DirectAgent } from './direct_agent.js';
+
+// Mode Router
+export {
+  ModeRouter,
+  getModeRouter,
+} from './mode_router.js';
 
 // Types
 export {
   PlanAction,
   EditOperation,
+  AgentMode,
   AgentStage,
   ToolName,
   PlanStep,
@@ -69,6 +80,7 @@ export {
   ToolCall,
   ToolDefinition,
   ToolParameter,
+  ToolResult,
   VerificationResult,
   VerificationError,
   VerificationWarning,
@@ -80,6 +92,7 @@ export {
   AgentConfig,
   LLMMessage,
   LLMToolCall,
+  LLMToolSchema,
   LLMResponse,
   LLMProvider,
   LLMOptions,

@@ -28,6 +28,8 @@ export async function routes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/api/v1/projects/:id/files', { preHandler: mixedAuthMiddleware }, fileController.createFile);
   fastify.put('/api/v1/projects/:id/files/:fileId', { preHandler: mixedAuthMiddleware }, fileController.updateFile);
   fastify.delete('/api/v1/projects/:id/files/:fileId', { preHandler: mixedAuthMiddleware }, fileController.deleteFile);
+  // Path-based delete (frontend sends DELETE /files?path=...)
+  fastify.delete('/api/v1/projects/:id/files', { preHandler: mixedAuthMiddleware }, fileController.deleteFile);
   fastify.put('/api/v1/projects/:id/files/:fileId/move', { preHandler: mixedAuthMiddleware }, fileController.moveFile);
   
   fastify.post('/api/v1/projects/:id/files/sync', { preHandler: mixedAuthMiddleware }, fileController.syncFiles);

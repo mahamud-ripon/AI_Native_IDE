@@ -189,10 +189,12 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
     type: 'file' | 'directory';
   } | null>(null);
 
-  // Load file tree on mount
+  // Load file tree on mount - use ref to prevent duplicate requests
+  const treeLoadedRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || treeLoadedRef.current === projectId) return;
 
+    treeLoadedRef.current = projectId;
     setFileTreeLoading(true);
     fileSystemClient.listDirectory(projectId, '/').then(entries => {
       setFileTree(fileEntriesToNodes(entries));
@@ -204,10 +206,22 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
   }, [projectId]);
 
   // Subscribe to workspace file events
+  // bolt.new approach: All projects are cloud projects with UUID
+  const wsConnectedRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || wsConnectedRef.current === projectId) return;
 
-    workspaceSocket.connect(projectId).catch(console.error);
+    wsConnectedRef.current = projectId;
+
+    // Try to connect WebSocket, but don't fail if it's unavailable
+    workspaceSocket.connect(projectId)
+      .then(() => {
+        // Connected successfully
+      })
+      .catch((error) => {
+        // WebSocket connection failed - this is OK, we can still work without it
+        console.warn('Workspace WebSocket unavailable:', error.message);
+      });
 
     const unsubscribe = workspaceSocket.subscribe((event) => {
       ideEventBus.emit('workspace:fileEvent', { type: event.eventType, path: event.filePath || '' });
@@ -219,7 +233,10 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
       }
     });
 
-    return () => { unsubscribe(); };
+    return () => { 
+      unsubscribe();
+      wsConnectedRef.current = null;
+    };
   }, [projectId]);
 
   // Subscribe to ideEventBus for AI-generated file events

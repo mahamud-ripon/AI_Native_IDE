@@ -59,6 +59,15 @@ export const ADMIN_ENDPOINTS = {
     toggle: (id: string) => `/admin/feature-flags/${id}/toggle`,
     bulkToggle: '/admin/feature-flags/bulk/toggle',
   },
+
+  // AI Settings
+  ai: {
+    config: '/admin/ai/config',
+    updateConfig: (key: string) => `/admin/ai/config/${key}`,
+    models: '/admin/ai/models',
+    refresh: '/admin/ai/config/refresh',
+    health: '/admin/ai/health',
+  },
   
   // Audit Logs
   auditLogs: {

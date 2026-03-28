@@ -26,7 +26,7 @@ export type IDEEvents = {
   'file:created': { path: string };
   'file:deleted': { path: string };
   'file:renamed': { oldPath: string; newPath: string };
-  'file:changed': { path: string; content: string };
+  'file:changed': { path: string; content?: string };
 
   // Editor events
   'editor:tabChanged': { path: string };
@@ -65,6 +65,7 @@ export type IDEEvents = {
   'workspace:connected': { projectId: string };
   'workspace:disconnected': undefined;
   'workspace:fileEvent': { type: string; path: string };
+  'tree:refresh': { path: string };
 };
 
 // ============================================================================

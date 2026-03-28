@@ -6,7 +6,6 @@
  * 
  * Reliability features:
  * - Idempotent consumer guard (checks DB status before processing)
- * - Timeout enforcement (Promise.race with timeout)
  * - Worker concurrency limit (semaphore)
  * - Distributed locking (Redis)
  */
@@ -17,7 +16,6 @@ import Redis from 'ioredis';
 import { config } from '../config.js';
 import { getExecutionTaskService, ExecutionTaskService } from './execution_task_service.js';
 import { getTaskOrchestrator, TaskOrchestrator } from '../coding/execution/task_orchestrator.js';
-import { getRollbackManager, RollbackManager } from '../coding/execution/rollback_manager.js';
 import { WorkspaceFS, RemoteWorkspaceFS, createRemoteWorkspace } from '../coding/workspace/index.js';
 import { getDiffEngine } from '../coding/patch/index.js';
 import { ExecutionTaskMessage, EXECUTION_STAGES, EXECUTION_KAFKA_TOPICS } from './execution_types.js';
@@ -138,17 +136,6 @@ async function releaseConcurrencySlot(): Promise<void> {
 }
 
 /**
- * Create timeout promise
- */
-function createTimeoutPromise(timeoutMs: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`Task timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-}
-
-/**
  * Verify task is still in queued status (idempotent guard)
  */
 async function verifyTaskIsQueued(
@@ -226,11 +213,18 @@ async function processTask(
 
     // Create remote workspace (files stored in S3 via project-service API)
     console.log(`[ExecutionWorker] Creating remote workspace for project ${projectId}`);
+    // Validate that userId is a proper UUID before passing it to project-service.
+    // The createdBy / lastEditedBy columns in project_files are UUID columns —
+    // Prisma will throw "invalid character" if a non-UUID string (e.g. "system") is used.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const resolvedUserId = message.userId && UUID_RE.test(message.userId)
+      ? message.userId
+      : projectId; // Fall back to projectId (also a UUID) — better than 'system'
     const workspace = createRemoteWorkspace({
       projectId,
       projectServiceUrl: config.projectServiceUrl,
       internalApiKey: config.internalApiKey,
-      userId: message.userId ?? 'system',
+      userId: resolvedUserId,
     });
     workspace.setDiffEngine(getDiffEngine());
 
@@ -276,7 +270,9 @@ async function processTask(
       id: taskId,
       workspaceId,
       prompt: instruction,
-      userId: message.userId ?? 'system',
+      userId: resolvedUserId,
+      mode: options?.mode as 'direct' | 'plan_execute' | 'multi_agent' | undefined,
+      modelHint: options?.modelHint,
       options: {
         timeoutMs,
         enableRollback: options?.enableRollback ?? true,
@@ -286,91 +282,11 @@ async function processTask(
         maxFilesModified: options?.maxFilesModified ?? 10,
         streamProgress: true,
       },
+      workspaceContext: message.workspaceContext,
       createdAt: new Date(),
     };
 
-    // ========================================
-    // TIMEOUT ENFORCEMENT: Race with timeout
-    // ========================================
-    let result;
-    try {
-      result = await Promise.race([
-        orchestrator.runTask(taskRequest),
-        createTimeoutPromise(timeoutMs),
-      ]);
-    } catch (timeoutError) {
-      // Handle timeout
-      console.error(`[ExecutionWorker] Task ${taskId} timed out after ${timeoutMs}ms`);
-      
-      await taskService.updateStatus(taskId, ExecutionTaskStatus.timeout, {
-        progress: 0,
-        currentStage: EXECUTION_STAGES.FAILED,
-        stageMessage: `Task timed out after ${timeoutMs}ms`,
-        error: {
-          code: 'TIMEOUT',
-          message: `Task timed out after ${timeoutMs}ms`,
-          stage: 'execution',
-          recoverable: true,
-        },
-      });
-
-      await taskService.appendEvent(taskId, {
-        eventType: ExecutionEventType.task_failed,
-        stage: EXECUTION_STAGES.FAILED,
-        message: `Task timed out after ${timeoutMs}ms`,
-        progress: 0,
-        payload: { timeout: true, timeoutMs },
-      });
-
-      // ========================================
-      // ROLLBACK: Restore snapshot if exists
-      // ========================================
-      const task = await taskService.getTask(taskId);
-      let rollbackPerformed = false;
-      
-      if (task?.snapshotId) {
-        console.log(`[ExecutionWorker] Rolling back task ${taskId} due to timeout, snapshot: ${task.snapshotId}`);
-        
-        try {
-          const rollbackManager = getRollbackManager();
-          const rollbackResult = await rollbackManager.restoreSnapshot(workspace as unknown as WorkspaceFS, task.snapshotId);
-          rollbackPerformed = rollbackResult.success;
-          
-          if (rollbackResult.success) {
-            console.log(`[ExecutionWorker] Rollback successful, restored ${rollbackResult.filesRestored} files`);
-          } else {
-            console.error(`[ExecutionWorker] Rollback failed: ${rollbackResult.error}, ${rollbackResult.filesFailed.length} files failed`);
-          }
-          
-          await taskService.appendEvent(taskId, {
-            eventType: ExecutionEventType.task_failed,
-            stage: EXECUTION_STAGES.FAILED,
-            message: 'Rollback completed after timeout',
-            progress: 0,
-            payload: { 
-              rollback: true, 
-              rollbackPerformed,
-              filesRestored: rollbackResult.filesRestored,
-              filesFailed: rollbackResult.filesFailed,
-            },
-          });
-        } catch (rollbackError) {
-          console.error(`[ExecutionWorker] Rollback error:`, rollbackError);
-        }
-      }
-
-      await taskService.updateStatus(taskId, ExecutionTaskStatus.timeout, {
-        rollbackPerformed,
-      });
-
-      // Check retry
-      if (task && task.retryCount < task.maxRetries) {
-        console.log(`[ExecutionWorker] Retrying task ${taskId} after timeout`);
-        await taskService.retryTask(taskId);
-      }
-
-      return;
-    }
+    const result = await orchestrator.runTask(taskRequest);
 
     // Handle result
     if (result.success) {
@@ -416,6 +332,83 @@ async function processTask(
       if (result.agentResult?.filesChanged && result.agentResult.filesChanged.length > 0) {
         console.log(`[ExecutionWorker] ${result.agentResult.filesChanged.length} files saved to S3 via project-service: ${result.agentResult.filesChanged.join(', ')}`);
       }
+    } else if (result.status === 'timeout' || result.error?.code === 'TASK_TIMEOUT') {
+      const error = result.error;
+
+      await taskService.updateStatus(taskId, ExecutionTaskStatus.timeout, {
+        progress: 0,
+        currentStage: EXECUTION_STAGES.FAILED,
+        stageMessage: error?.message ?? 'Task timed out',
+        error: {
+          code: error?.code ?? 'TASK_TIMEOUT',
+          message: error?.message ?? 'Task timed out',
+          stage: error?.stage ?? 'execution',
+          recoverable: error?.recoverable ?? true,
+        },
+        summary: {
+          rollbackPerformed: result.rollbackPerformed,
+          snapshotId: result.snapshotId,
+        },
+        metrics: {
+          totalDurationMs: result.metrics.totalDurationMs,
+        },
+        rollbackPerformed: result.rollbackPerformed,
+        snapshotId: result.snapshotId,
+      });
+
+      await taskService.appendEvent(taskId, {
+        eventType: ExecutionEventType.task_failed,
+        stage: EXECUTION_STAGES.FAILED,
+        message: error?.message ?? 'Task timed out',
+        progress: 0,
+        payload: {
+          timeout: true,
+          rollbackPerformed: result.rollbackPerformed,
+        },
+      });
+
+      console.error(`[ExecutionWorker] Task ${taskId} timed out:`, error?.message);
+
+      const task = await taskService.getTask(taskId);
+      if (task && task.retryCount < task.maxRetries && (error?.recoverable ?? true)) {
+        console.log(`[ExecutionWorker] Retrying task ${taskId} after timeout`);
+        await taskService.retryTask(taskId);
+      }
+    } else if (result.status === 'cancelled' || result.error?.code === 'TASK_CANCELLED') {
+      const error = result.error;
+
+      await taskService.updateStatus(taskId, ExecutionTaskStatus.cancelled, {
+        progress: 0,
+        currentStage: EXECUTION_STAGES.FAILED,
+        stageMessage: error?.message ?? 'Task cancelled',
+        error: {
+          code: error?.code ?? 'TASK_CANCELLED',
+          message: error?.message ?? 'Task cancelled',
+          stage: error?.stage ?? 'execution',
+          recoverable: error?.recoverable ?? false,
+        },
+        summary: {
+          rollbackPerformed: result.rollbackPerformed,
+          snapshotId: result.snapshotId,
+        },
+        metrics: {
+          totalDurationMs: result.metrics.totalDurationMs,
+        },
+        rollbackPerformed: result.rollbackPerformed,
+        snapshotId: result.snapshotId,
+      });
+
+      await taskService.appendEvent(taskId, {
+        eventType: ExecutionEventType.task_cancelled,
+        stage: EXECUTION_STAGES.FAILED,
+        message: error?.message ?? 'Task cancelled',
+        progress: 0,
+        payload: {
+          rollbackPerformed: result.rollbackPerformed,
+        },
+      });
+
+      console.warn(`[ExecutionWorker] Task ${taskId} cancelled`);
     } else {
       // Task failed
       const error = result.error;

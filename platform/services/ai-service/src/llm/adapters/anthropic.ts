@@ -26,18 +26,45 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig) {
       const systemMessage = req.messages.find(m => m.role === 'system');
       const nonSystemMessages = req.messages.filter(m => m.role !== 'system');
 
+      // Map tools for Anthropic format
+      const anthropicTools = req.tools?.map((t: any) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.parameters,
+      }));
+
       const response = await client.messages.create({
         model,
         max_tokens: req.maxTokens ?? 4096,
         system: systemMessage?.content,
-        messages: nonSystemMessages.map(m => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })),
+        messages: nonSystemMessages.map(m => {
+          if (m.role === 'assistant') return { role: 'assistant' as const, content: m.content };
+          if (m.role === 'tool') {
+            return {
+              role: 'user' as const,
+              content: [{
+                type: 'tool_result' as const,
+                tool_use_id: m.toolCallId ?? m.name ?? '',
+                content: m.content,
+              }],
+            };
+          }
+          return { role: 'user' as const, content: m.content };
+        }),
+        tools: anthropicTools,
       });
 
       const textBlock = response.content.find((b: { type: string }) => b.type === 'text');
       const outputText = textBlock ? (textBlock as any).text : '';
+
+      // Extract tool_use blocks
+      const toolCalls = response.content
+        .filter((b: any) => b.type === 'tool_use')
+        .map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          arguments: b.input as Record<string, unknown>,
+        }));
 
       const tokensIn = response.usage.input_tokens;
       const tokensOut = response.usage.output_tokens;
@@ -50,6 +77,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig) {
           provider: 'anthropic',
           model,
           outputText,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           tokensIn,
           tokensOut,
           latencyMs,

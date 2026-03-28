@@ -134,6 +134,13 @@ const ROUTES = [
     serviceName: 'storage-service',
   },
 
+  // AI Service Admin Config (port 8003)
+  {
+    prefix: '/admin/ai',
+    upstream: `${SERVICE_URLS.ai}/admin/ai`,
+    serviceName: 'ai-service',
+  },
+
   // Analytics Service (port 3009) - Admin routes
   {
     prefix: '/api/v1/admin/analytics',

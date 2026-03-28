@@ -7,6 +7,12 @@
 import { CodeChunk } from '../retrieval/retrieval_types.js';
 import { ProjectContext } from '../context/context_types.js';
 
+// Agent execution modes (3-mode architecture)
+export type AgentMode = 'direct' | 'plan_execute' | 'multi_agent';
+
+// Task complexity hints used by the router
+export type TaskComplexity = 'low' | 'medium' | 'high';
+
 // Plan action types
 export type PlanAction =
   | 'create_file'
@@ -40,11 +46,32 @@ export type AgentStage =
 export type ToolName =
   | 'read_file'
   | 'write_file'
+  | 'delete_file'
+  | 'edit_file'
   | 'apply_patch'
   | 'search_code'
   | 'list_files'
   | 'get_context'
   | 'execute_command';
+
+// High-level tool capabilities for routing and observability
+export type ToolCapability =
+  | 'read'
+  | 'write'
+  | 'modify'
+  | 'delete'
+  | 'search'
+  | 'inspect'
+  | 'context'
+  | 'execute'
+  | 'debug';
+
+// Optional tool preferences supplied by the client
+export interface ToolIntent {
+  preferredTools?: ToolName[];
+  requiredTools?: ToolName[];
+  readOnly?: boolean;
+}
 
 // Plan step
 export interface PlanStep {
@@ -99,14 +126,6 @@ export interface ToolCall {
   timestamp: Date;
 }
 
-// Tool definition
-export interface ToolDefinition {
-  name: ToolName;
-  description: string;
-  parameters: ToolParameter[];
-  execute: (args: Record<string, unknown>) => Promise<unknown>;
-}
-
 // Tool parameter
 export interface ToolParameter {
   name: string;
@@ -114,6 +133,25 @@ export interface ToolParameter {
   description: string;
   required: boolean;
   default?: unknown;
+}
+
+// Standardized Tool Result
+export interface ToolResult {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  errorCode?: string;
+}
+
+// Tool definition
+export interface ToolDefinition {
+  name: ToolName;
+  description: string;
+  parameters: ToolParameter[];
+  capabilities?: ToolCapability[];
+  permissions?: string[];     // Array of roles/agents allowed to use this tool (e.g. ['admin', 'engineer'])
+  timeoutMs?: number;         // Max execution time before throwing
+  execute: (args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
 // Verification result
@@ -238,12 +276,23 @@ export interface LLMProvider {
   stream(messages: LLMMessage[], options?: LLMOptions): AsyncIterable<LLMStreamChunk>;
 }
 
+// LLM tool definition for passing to LLM (without execute function)
+export interface LLMToolSchema {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, { type: string; description: string }>;
+    required: string[];
+  };
+}
+
 // LLM options
 export interface LLMOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
-  tools?: ToolDefinition[];
+  tools?: LLMToolSchema[];
   stopSequences?: string[];
 }
 
@@ -324,12 +373,20 @@ export class VerificationFailedError extends Error {
 
 // Tool execution error
 export class ToolExecutionError extends Error {
+  public readonly code: string;
+
   constructor(
     toolName: string,
     message: string,
-    public readonly args: Record<string, unknown>
+    public readonly args: Record<string, unknown>,
+    code?: string,
+    public readonly originalError?: Error
   ) {
     super(`Tool '${toolName}' failed: ${message}`);
     this.name = 'ToolExecutionError';
+    this.code = code || 'EXECUTION_FAILED';
+    if (originalError?.stack) {
+      this.stack = `${this.stack}\nCaused by: ${originalError.stack}`;
+    }
   }
 }

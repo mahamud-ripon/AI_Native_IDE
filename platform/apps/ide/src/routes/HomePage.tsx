@@ -5,34 +5,38 @@
 
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { HomeSidebar } from '../components/layout/HomeSidebar';
+import { HomeLeftIconBar } from '../components/layout/HomeLeftIconBar';
+import { HomeSettingsModal } from '../components/layout/HomeSettingsModal';
 import { projectClient } from '../api/projectClient';
+import { cn } from '../lib/utils';
+import { SimpleTooltip } from '../components/ui/Tooltip';
 
-// ── Icons ──
-const SendIcon = () => (
+const SendIconSvg = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
     <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
   </svg>
 );
 
-const ArrowIcon = () => (
+const ArrowIconSvg = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M5 12h14M12 5l7 7-7 7" />
   </svg>
 );
 
-const CheckIcon = () => (
+const CheckIconSvg = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
 
-const SpinnerIcon = () => (
+const SpinnerIconSvg = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" style={{ animation: 'spin 1s linear infinite' }}>
     <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="50" strokeLinecap="round" />
   </svg>
 );
 
-// ── Styles ──
 const styles = {
   bg: '#050508',
   surface: 'rgba(10,10,20,0.7)',
@@ -86,9 +90,11 @@ export function HomePage() {
   const [building, setBuilding] = React.useState(false);
   const [buildState, setBuildState] = React.useState<'idle' | 'loading' | 'done'>('idle');
   const [navScrolled, setNavScrolled] = React.useState(false);
+  const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = React.useState(false);
+  const [activeLeftIcon, setActiveLeftIcon] = React.useState<string>('chat');
   const cursorGlowRef = React.useRef<HTMLDivElement>(null);
 
-  // Cursor glow effect
   React.useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (cursorGlowRef.current) {
@@ -100,7 +106,6 @@ export function HomePage() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // Nav scroll effect
   React.useEffect(() => {
     const handleScroll = () => setNavScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
@@ -110,10 +115,10 @@ export function HomePage() {
   const handleBuild = async () => {
     if (!prompt.trim() || building) return;
 
-    // Check if user is authenticated
+    // bolt.new approach: Always create project in PostgreSQL with UUID
+    // No "browser vs cloud" distinction - every project is a cloud project
     const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
     if (!token) {
-      // Redirect to login, then come back to build
       navigate(`/login?redirect=${encodeURIComponent('/')}&prompt=${encodeURIComponent(prompt.trim())}`);
       return;
     }
@@ -122,6 +127,7 @@ export function HomePage() {
     setBuildState('loading');
 
     try {
+      // Create project in PostgreSQL (gets UUID)
       const project = await projectClient.createProject({
         name: prompt.trim().slice(0, 50).replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '-').toLowerCase() || 'my-app',
         template: 'react',
@@ -130,9 +136,11 @@ export function HomePage() {
 
       setBuildState('done');
       setTimeout(() => {
+        // Navigate to project with UUID from database
         navigate(`/p/${project.id}`);
       }, 800);
-    } catch {
+    } catch (error) {
+      console.error('Failed to create project:', error);
       setBuildState('idle');
       setBuilding(false);
     }
@@ -140,6 +148,15 @@ export function HomePage() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleBuild();
+  };
+
+  const handleLeftIconClick = (id: string) => {
+    setActiveLeftIcon(id);
+    if (id === 'sidebar') {
+      setSidebarOpen(true);
+    } else if (id === 'settings') {
+      setSettingsModalOpen(true);
+    }
   };
 
   return (
@@ -160,37 +177,109 @@ export function HomePage() {
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
       }} />
 
+      {/* Sidebar */}
+      <HomeSidebar
+        open={sidebarOpen}
+        onOpenChange={setSidebarOpen}
+        onSettings={() => setSettingsModalOpen(true)}
+        onHelp={() => setSettingsModalOpen(true)}
+        onSubscription={() => setSettingsModalOpen(true)}
+      />
+
+      {/* Left Icon Bar */}
+      <HomeLeftIconBar
+        activeIcon={activeLeftIcon as 'chat' | 'templates' | 'projects' | 'files' | 'settings' | 'help'}
+        onIconClick={handleLeftIconClick}
+      />
+
+      {/* Settings Modal */}
+      <HomeSettingsModal
+        open={settingsModalOpen}
+        onOpenChange={setSettingsModalOpen}
+      />
+
       {/* Nav */}
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, padding: '18px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: `1px solid ${styles.border}`,
-        background: navScrolled ? 'rgba(5,5,8,.9)' : 'rgba(5,5,8,.6)', transition: 'all .3s',
-      }}>
-        <div style={{
-          fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: '-.02em',
-          background: `linear-gradient(135deg,${styles.cyan},${styles.lime})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
-        }}>
-          AI-Native IDE
+      <nav className={cn(
+        'fixed top-0 left-0 right-0 z-[100] px-10 py-4.5 flex items-center justify-between',
+        'backdrop-blur-xl border-b transition-all duration-300',
+        navScrolled ? 'bg-[rgba(5,5,8,.9)]' : 'bg-[rgba(5,5,8,.6)]'
+      )}
+      style={{ borderColor: 'rgba(255,255,255,0.05)' }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-3">
+          <div
+            className="text-lg font-extrabold tracking-tight"
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              background: `linear-gradient(135deg,${styles.cyan},${styles.lime})`,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+          >
+            AI-Native IDE
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+
+        {/* Nav Links */}
+        <div className="flex items-center gap-8">
           {['Product', 'Docs', 'Pricing'].map(link => (
-            <a key={link} href="#" style={{ fontSize: 12, color: styles.muted, textDecoration: 'none', letterSpacing: '.06em', transition: 'color .2s' }}
+            <a
+              key={link}
+              href="#"
+              className="text-xs tracking-widest uppercase transition-colors duration-200"
+              style={{ color: styles.muted }}
               onMouseEnter={e => (e.target as HTMLElement).style.color = styles.text}
               onMouseLeave={e => (e.target as HTMLElement).style.color = styles.muted}
             >
               {link}
             </a>
           ))}
-          <a href="#" style={{
-            padding: '10px 24px', borderRadius: 100, border: `1px solid rgba(0,229,255,.3)`, background: 'rgba(0,229,255,.06)',
-            color: styles.cyan, fontFamily: "'Syne', sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase',
-            textDecoration: 'none', transition: 'all .3s',
-          }}
-            onMouseEnter={e => { (e.target as HTMLElement).style.background = styles.cyan; (e.target as HTMLElement).style.color = styles.bg; }}
-            onMouseLeave={e => { (e.target as HTMLElement).style.background = 'rgba(0,229,255,.06)'; (e.target as HTMLElement).style.color = styles.cyan; }}
-          >
-            Get Started
-          </a>
+        </div>
+
+        {/* Right Section */}
+        <div className="flex items-center gap-4">
+          {/* Social Icons */}
+          <div className="flex items-center gap-3">
+            <SimpleTooltip content="Discord" side="bottom">
+              <button className="w-8 h-8 flex items-center justify-center text-[#71717a] hover:text-white transition-colors">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
+                </svg>
+              </button>
+            </SimpleTooltip>
+            <SimpleTooltip content="LinkedIn" side="bottom">
+              <button className="w-8 h-8 flex items-center justify-center text-[#71717a] hover:text-white transition-colors">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                </svg>
+              </button>
+            </SimpleTooltip>
+            <SimpleTooltip content="Twitter" side="bottom">
+              <button className="w-8 h-8 flex items-center justify-center text-[#71717a] hover:text-white transition-colors">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              </button>
+            </SimpleTooltip>
+          </div>
+
+          {/* Separator */}
+          <div className="h-4 w-px bg-[rgba(255,255,255,0.1)]" />
+
+          {/* Account Icon */}
+          <SimpleTooltip content="Account" side="bottom">
+            <button
+              onMouseEnter={() => setSidebarOpen(true)}
+              className="w-10 h-10 rounded-full flex items-center justify-center bg-[#18181b] text-[#a1a1aa] hover:bg-[#27272a] hover:text-white transition-all"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </button>
+          </SimpleTooltip>
         </div>
       </nav>
 
@@ -282,7 +371,7 @@ export function HomePage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .3s', flexShrink: 0,
               }}
             >
-              {buildState === 'loading' ? <SpinnerIcon /> : buildState === 'done' ? <CheckIcon /> : <SendIcon />}
+              {buildState === 'loading' ? <SpinnerIconSvg /> : buildState === 'done' ? <CheckIconSvg /> : <SendIconSvg />}
             </button>
           </div>
 
@@ -445,7 +534,7 @@ export function HomePage() {
             transition: 'all .3s', position: 'relative', overflow: 'hidden',
           }}
         >
-          Start Building Free <ArrowIcon />
+          Start Building Free <ArrowIconSvg />
         </button>
       </section>
 

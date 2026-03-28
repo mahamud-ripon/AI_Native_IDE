@@ -14,18 +14,13 @@
 
 import * as React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Editor from '@monaco-editor/react';
 import {
   Zap,
   Rocket,
   Code,
-  Bookmark,
   Github,
   Play,
   MoreHorizontal,
-  ArrowLeft,
-  ArrowRight,
-  ExternalLink,
   Lock,
   GitBranch,
   AlertCircle,
@@ -38,6 +33,7 @@ import {
   X,
   ChevronRight,
 } from 'lucide-react';
+import Editor from '@monaco-editor/react';
 import { cn } from '@/lib/utils';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { CommandPalette } from '@/components/command-palette';
@@ -45,6 +41,7 @@ import { useIDEStore, ideEventBus, detectLanguage, type FileNode, type PendingDi
 import { useAIChatStore } from '@/state/aiChatStore';
 import { logger } from '@/lib/logger';
 import { fileSystemClient } from '@/api/fileSystemClient';
+import { smartFileSystemClient } from '@/api/smartFileSystemClient';
 import { useExecutionStreamIntegration } from '@/hooks/useExecutionStreamIntegration';
 import { aiCodingController } from '@/core/ai/aiCodingController';
 
@@ -431,7 +428,7 @@ function CodeEditorPanel({ projectId }: CodeEditorPanelProps) {
     return () => ideEventBus.off('ai:applyCode', handleApplyCode);
   }, [activeTabPath, fileContents]);
 
-  // Auto-save on content change
+  // Auto-save on content change - uses smart client for browser/cloud switching
   const handleEditorChange = React.useCallback(
     async (value: string | undefined) => {
       if (!activeTabPath || value === undefined) return;
@@ -439,11 +436,16 @@ function CodeEditorPanel({ projectId }: CodeEditorPanelProps) {
       setFileContent(activeTabPath, value);
       markTabDirty(activeTabPath, true);
 
-      // Debounced save
+      // Debounced save - uses smart client to auto-detect browser/cloud
       clearTimeout((window as any).__saveTimeout);
       (window as any).__saveTimeout = setTimeout(async () => {
         setIsSaving(true);
-        await fileSystemClient.writeFile(projectId, activeTabPath, value);
+        await smartFileSystemClient.writeFile(
+          projectId, 
+          activeTabPath, 
+          value,
+          smartFileSystemClient.getProjectType()
+        );
         markTabDirty(activeTabPath, false);
         setIsSaving(false);
         ideEventBus.emit('file:saved', { path: activeTabPath, content: value });
@@ -750,10 +752,16 @@ export function IdeShell({
   // AI controller session is wired to the same conversation the ChatPanel uses.
   const activeConversationId = useAIChatStore((s) => s.activeConversationId);
 
+  // bolt.new approach: All projects are cloud projects with UUID
+  // WebContainer is execution environment, not storage
+  const projectType: 'browser' | 'cloud' = React.useMemo(() => {
+    return 'cloud'; // All projects are cloud projects
+  }, []);
+
   // Initialize project
   React.useEffect(() => {
-    setProject(projectId, projectName, workspaceId);
-  }, [projectId, projectName, workspaceId]);
+    setProject(projectId, projectName, workspaceId, projectType);
+  }, [projectId, projectName, workspaceId, projectType]);
 
   // Initialize execution stream integration
   useExecutionStreamIntegration({
@@ -776,17 +784,17 @@ export function IdeShell({
     }
   }, [projectId, workspaceId, activeConversationId]);
 
-  // Open initial file
+  // Open initial file - uses smart client to auto-detect browser/cloud
   React.useEffect(() => {
     if (filePath) {
-      fileSystemClient.readFile(projectId, filePath).then(content => {
+      smartFileSystemClient.readFile(projectId, filePath, projectType).then(content => {
         setFileContent(filePath, content.content);
         openTab(filePath, content.content);
       }).catch(() => {
         // File doesn't exist yet (new/empty project) — that's fine, ignore
       });
     }
-  }, [filePath, projectId]);
+  }, [filePath, projectId, projectType]);
 
   // Keyboard shortcuts
   const { registerShortcut } = useKeyboardShortcuts();
@@ -804,10 +812,10 @@ export function IdeShell({
         id: 'save-file',
         key: 'Ctrl+S',
         action: () => {
-          const { activeTabPath, fileContents } = useIDEStore.getState();
+          const { activeTabPath, fileContents, projectType } = useIDEStore.getState();
           if (activeTabPath) {
             const content = fileContents.get(activeTabPath) || '';
-            fileSystemClient.writeFile(projectId, activeTabPath, content);
+            smartFileSystemClient.writeFile(projectId, activeTabPath, content, projectType);
           }
         },
         description: 'Save file',
@@ -891,6 +899,7 @@ export function IdeShell({
                 projectId={projectId}
                 activeTab={bottomPanelTab}
                 onTabChange={setBottomPanelTab}
+                projectType={projectType}
               />
             </ErrorBoundary>
           )}

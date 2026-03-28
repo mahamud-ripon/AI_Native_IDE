@@ -34,6 +34,7 @@ function buildFileTreeFromMap(files: Record<string, string>): FileSystemTree {
 
 export async function bootContainer(): Promise<WebContainer> {
   if (!bootPromise) {
+    // WebContainer.boot() - API key is handled via CDN configuration
     bootPromise = WebContainer.boot();
   }
   return bootPromise;
@@ -159,7 +160,7 @@ export async function spawnShell(): Promise<ShellProcess> {
     shellProcess = null;
   }
 
-  shellProcess = await wc.spawn('jsh', [], {
+  shellProcess = await wc.spawn('bash', [], {
     terminal: {
       cols: 80,
       rows: 24

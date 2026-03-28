@@ -3,6 +3,10 @@
  *
  * Handles all file operations against the backend API.
  * Supports CRUD operations, directory listing, and file watching.
+ *
+ * bolt.new approach: Every project is a cloud project with UUID.
+ * WebContainer is the execution environment, not storage.
+ * Files are stored in PostgreSQL (primary source of truth).
  */
 
 import { apiConfig } from '../lib/apiConfig';
@@ -245,6 +249,7 @@ class FileSystemClient {
 
   /**
    * Apply AI patches to multiple files
+   * bolt.new approach: Always use backend API
    */
   async applyAiPatches(projectId: string, patches: Array<{ path: string; content: string }>): Promise<{ applied: string[]; failed: string[]; error?: string }> {
     try {
@@ -291,6 +296,28 @@ class FileSystemClient {
     } catch (error) {
       console.error('[FileSystemClient] searchFiles error:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get snapshot of all files for WebContainer mounting
+   */
+  async getSnapshot(projectId: string): Promise<Record<string, string>> {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/api/v1/projects/${projectId}/snapshot`,
+        { headers: this.getAuthHeaders() }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to get snapshot: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.files || {};
+    } catch (error) {
+      console.error('[FileSystemClient] getSnapshot error:', error);
+      return {};
     }
   }
 

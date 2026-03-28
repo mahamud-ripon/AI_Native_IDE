@@ -10,11 +10,30 @@ export async function aiRoutes(fastify: FastifyInstance) {
         properties: {
           projectId: { type: 'string' },
           prompt: { type: 'string' },
+          mode: { type: 'string', enum: ['direct', 'plan_execute', 'multi_agent'] },
+          taskComplexity: { type: 'string', enum: ['low', 'medium', 'high'] },
+          toolIntent: {
+            type: 'object',
+            properties: {
+              preferredTools: { type: 'array', items: { type: 'string' } },
+              requiredTools: { type: 'array', items: { type: 'string' } },
+              readOnly: { type: 'boolean' },
+            },
+          },
           context: {
             type: 'object',
             properties: {
               files: { type: 'array', items: { type: 'string' } },
               schema: { type: 'object' },
+            },
+          },
+          workspaceContext: {
+            type: 'object',
+            properties: {
+              fileTree: { type: 'array', items: { type: 'string' } },
+              activeFile: { type: ['string', 'null'] },
+              activeFileContent: { type: ['string', 'null'] },
+              openTabs: { type: 'array', items: { type: 'string' } },
             },
           },
         },
@@ -30,11 +49,30 @@ export async function aiRoutes(fastify: FastifyInstance) {
         properties: {
           projectId: { type: 'string' },
           prompt: { type: 'string' },
+          mode: { type: 'string', enum: ['direct', 'plan_execute', 'multi_agent'] },
+          taskComplexity: { type: 'string', enum: ['low', 'medium', 'high'] },
+          toolIntent: {
+            type: 'object',
+            properties: {
+              preferredTools: { type: 'array', items: { type: 'string' } },
+              requiredTools: { type: 'array', items: { type: 'string' } },
+              readOnly: { type: 'boolean' },
+            },
+          },
           context: {
             type: 'object',
             properties: {
               files: { type: 'array', items: { type: 'string' } },
               schema: { type: 'object' },
+            },
+          },
+          workspaceContext: {
+            type: 'object',
+            properties: {
+              fileTree: { type: 'array', items: { type: 'string' } },
+              activeFile: { type: ['string', 'null'] },
+              activeFileContent: { type: ['string', 'null'] },
+              openTabs: { type: 'array', items: { type: 'string' } },
             },
           },
         },

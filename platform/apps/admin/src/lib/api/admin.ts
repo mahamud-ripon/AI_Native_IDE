@@ -283,6 +283,38 @@ export async function bulkToggleFeatureFlags(
 }
 
 // ============================================
+// AI Config API
+// ============================================
+
+export async function getAIConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+  return apiFetch('/admin/ai/config');
+}
+
+export async function updateAIConfig(
+  key: string,
+  value: unknown,
+  token?: string
+): Promise<ApiResponse<{ key: string; value: unknown }>> {
+  return apiFetch(`/admin/ai/config/${key}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+    token,
+  });
+}
+
+export async function getAIModels(): Promise<ApiResponse<Array<{ provider: string; model: string; label: string }>>> {
+  return apiFetch('/admin/ai/models');
+}
+
+export async function refreshAIConfig(): Promise<ApiResponse<{ message: string }>> {
+  return apiFetch('/admin/ai/config/refresh', { method: 'POST' });
+}
+
+export async function getAIHealth(): Promise<ApiResponse<{ providers: Record<string, boolean> }>> {
+  return apiFetch('/admin/ai/health');
+}
+
+// ============================================
 // Bulk Operations API
 // ============================================
 

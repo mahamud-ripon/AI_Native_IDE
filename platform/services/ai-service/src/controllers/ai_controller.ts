@@ -5,13 +5,27 @@ import { maskSecrets, rehydrateSecrets } from '../middleware/data_masking.js';
 import { emitBillingEvent } from '../kafka/billing.js';
 import { prisma } from '@workspace/database';
 import { getLLMGateway } from '../llm/gateway.js';
+import { config } from '../config.js';
+import type { TaskComplexity, ToolIntent } from '../coding/agent/agent_types.js';
 
 interface ExecuteBody {
   projectId: string;
   prompt: string;
+  instruction?: string;
+  mode?: 'direct' | 'plan_execute' | 'multi_agent';
+  taskComplexity?: TaskComplexity;
+  modelHint?: string;
+  model?: string;
+  toolIntent?: ToolIntent;
   context?: {
     files?: string[];
     schema?: Record<string, unknown>;
+  };
+  workspaceContext?: {
+    fileTree?: string[];
+    activeFile?: string | null;
+    activeFileContent?: string | null;
+    openTabs?: string[];
   };
 }
 
@@ -21,15 +35,17 @@ type Intent = 'CHITCHAT' | 'WORKFLOW';
  * Server-side intent classification using LLM Gateway (fast model).
  * Uses Groq Llama-3 for ~50ms classification.
  */
-async function classifyIntent(prompt: string): Promise<Intent> {
+async function classifyIntent(prompt: string, modelHint?: string): Promise<Intent> {
   try {
     const gateway = await getLLMGateway();
+
     const response = await gateway.complete({
       workflowId: 'intent-classifier',
       projectId: 'system',
       agentName: 'classifier',
       stepName: 'classify',
       taskType: 'chat',
+      modelHint: modelHint || undefined,
       messages: [
         {
           role: 'system',
@@ -60,6 +76,7 @@ async function streamChatResponse(
   taskId: string,
   userId: string,
   projectId: string,
+  modelHint: string | undefined,
   reply: FastifyReply
 ): Promise<void> {
   const gateway = await getLLMGateway();
@@ -72,6 +89,7 @@ async function streamChatResponse(
     agentName: 'chat',
     stepName: 'respond',
     taskType: 'chat',
+    modelHint: modelHint || undefined,
     messages: [
       {
         role: 'system',
@@ -121,7 +139,8 @@ export async function executeTask(
     return reply.status(401).send({ error: 'Unauthorized: missing user ID' });
   }
 
-  const { projectId, prompt, context } = request.body;
+  const { projectId, prompt, context, taskComplexity, toolIntent, workspaceContext } = request.body;
+  const modelHint = request.body.modelHint || request.body.model;
 
   if (!projectId || !prompt) {
     return reply.status(400).send({ error: 'Missing required fields: projectId, prompt' });
@@ -138,33 +157,75 @@ export async function executeTask(
   });
 
   // Classify intent using fast LLM
-  const intent = await classifyIntent(maskedPrompt);
+  const intent = await classifyIntent(maskedPrompt, modelHint);
 
   // CHITCHAT → stream chat response directly from ai-service
   if (intent === 'CHITCHAT') {
-    await streamChatResponse(maskedPrompt, taskId, userId, projectId, reply);
+    await streamChatResponse(maskedPrompt, taskId, userId, projectId, modelHint, reply);
     return;
   }
 
-  // WORKFLOW → forward to ai-agents pipeline
-  const aiRequest: AIRequest = {
+  // WORKFLOW → use local orchestrator with ModeRouter (NOT the Python ai-agents client)
+  // This ensures Mode 1 (DirectAgent) is used for simple tasks like "delete a file"
+  const { getTaskOrchestrator } = await import('../coding/execution/task_orchestrator.js');
+  const { createRemoteWorkspace } = await import('../coding/workspace/index.js');
+  const { getDiffEngine } = await import('../coding/patch/index.js');
+
+  const orchestrator = getTaskOrchestrator();
+
+  // Create remote workspace
+  const workspace = createRemoteWorkspace({
     projectId,
+    projectServiceUrl: config.projectServiceUrl,
+    internalApiKey: config.internalApiKey,
     userId,
-    prompt: maskedPrompt,
-    context,
-  };
+  });
+  workspace.setDiffEngine(getDiffEngine());
+  const workspaceId = `ws-${projectId}`;
+  orchestrator.registerWorkspace(workspaceId, workspace as any);
+
+  // Set up progress streaming
+  orchestrator.setProgressCallback(async (event) => {
+    reply.raw.write(`data: ${JSON.stringify({
+      id: taskId,
+      type: 'progress',
+      data: {
+        stage: event.stage,
+        progress: event.progress,
+        message: event.message,
+        modeDecision: event.modeDecision,
+        details: event.details,
+      },
+    })}\n\n`);
+  });
 
   try {
     const startTime = Date.now();
-    let tokenCount = 0;
 
-    for await (const chunk of circuitBreaker.executeGenerator(() => aiAgentsClient.streamTask(aiRequest))) {
-      const rehydratedChunk = rehydrateSecrets(chunk);
-      
-      reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'workflow', data: rehydratedChunk })}\n\n`);
-      
-      tokenCount += chunk.split(/\s+/).length;
-    }
+    const result = await orchestrator.runTask({
+      id: taskId,
+      workspaceId,
+      prompt: maskedPrompt,
+      userId,
+      mode: request.body.mode as any,
+      routing: {
+        complexity: taskComplexity,
+        toolIntent,
+        contextFiles: context?.files,
+      },
+      metadata: {
+        projectId,
+        context,
+      },
+      workspaceContext,
+      options: {
+        timeoutMs: 120000,
+        enableRollback: true,
+        enableSandbox: false,
+        streamProgress: true,
+      },
+      createdAt: new Date(),
+    });
 
     const duration = Date.now() - startTime;
 
@@ -172,12 +233,20 @@ export async function executeTask(
       taskId,
       userId,
       projectId,
-      tokenCount,
+      tokenCount: result.agentResult?.metrics?.llmCalls ?? 0,
       duration,
-      status: 'completed',
+      status: result.success ? 'completed' : 'failed',
     });
 
-    reply.raw.write(`data: ${JSON.stringify({ id: taskId, type: 'workflow', status: 'completed' })}\n\n`);
+    reply.raw.write(`data: ${JSON.stringify({
+      id: taskId,
+      type: 'workflow',
+      status: result.success ? 'completed' : 'failed',
+      modeUsed: result.modeUsed,
+      modeDecision: result.modeDecision,
+      filesChanged: result.agentResult?.filesChanged ?? [],
+      summary: result.agentResult?.summary ?? result.error?.message,
+    })}\n\n`);
     reply.raw.end();
 
   } catch (error: any) {
@@ -206,38 +275,63 @@ export async function executeTaskSync(
     return reply.status(401).send({ error: 'Unauthorized: missing user ID' });
   }
 
-  const { projectId, prompt, context } = request.body;
+  const { projectId, prompt, context, taskComplexity, toolIntent, workspaceContext } = request.body;
 
   if (!projectId || !prompt) {
     return reply.status(400).send({ error: 'Missing required fields: projectId, prompt' });
   }
 
   const maskedPrompt = maskSecrets(prompt);
-
-  const aiRequest: AIRequest = {
-    projectId,
-    userId,
-    prompt: maskedPrompt,
-    context,
-  };
-
   const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   try {
-    const response = await circuitBreaker.execute(() => aiAgentsClient.executeTask(aiRequest));
-    
-    if (!response.ok) {
-      const error = await response.text();
-      return reply.status(response.status).send({ error: 'AI service error', details: error });
-    }
+    const { getTaskOrchestrator } = await import('../coding/execution/task_orchestrator.js');
+    const { createRemoteWorkspace } = await import('../coding/workspace/index.js');
+    const { getDiffEngine } = await import('../coding/patch/index.js');
 
-    const data = await response.json();
-    const rehydratedData = rehydrateSecrets(JSON.stringify(data));
+    const orchestrator = getTaskOrchestrator();
+    const workspace = createRemoteWorkspace({
+      projectId,
+      projectServiceUrl: config.projectServiceUrl,
+      internalApiKey: config.internalApiKey,
+      userId,
+    });
+    workspace.setDiffEngine(getDiffEngine());
+    const workspaceId = `ws-${projectId}`;
+    orchestrator.registerWorkspace(workspaceId, workspace as any);
+
+    const result = await orchestrator.runTask({
+      id: taskId,
+      workspaceId,
+      prompt: maskedPrompt,
+      userId,
+      mode: request.body.mode as any,
+      routing: {
+        complexity: taskComplexity,
+        toolIntent,
+        contextFiles: context?.files,
+      },
+      metadata: {
+        projectId,
+        context,
+      },
+      workspaceContext,
+      options: {
+        timeoutMs: 120000,
+        enableRollback: true,
+        enableSandbox: false,
+        streamProgress: false,
+      },
+      createdAt: new Date(),
+    });
 
     return reply.send({
       id: taskId,
-      status: 'completed',
-      data: JSON.parse(rehydratedData),
+      status: result.success ? 'completed' : 'failed',
+      modeUsed: result.modeUsed,
+      modeDecision: result.modeDecision,
+      filesChanged: result.agentResult?.filesChanged ?? [],
+      summary: result.agentResult?.summary ?? result.error?.message,
     });
 
   } catch (error: any) {

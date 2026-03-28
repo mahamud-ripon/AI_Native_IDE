@@ -358,11 +358,17 @@ export class CodeAgent {
           throw new Error('No workspace');
         }
 
+        // Check if this is a delete operation (original has content, target is empty)
+        const isDelete = patch.originalContent && patch.originalContent.length > 0
+          && (!patch.targetContent || patch.targetContent.length === 0);
+
         // Check if file would be created
         const isNewFile = !patch.originalContent || patch.originalContent.length === 0;
 
         // Apply via workspace
-        if (isNewFile) {
+        if (isDelete) {
+          await this.workspace.deleteFile(patch.path);
+        } else if (isNewFile) {
           await this.workspace.writeFile(patch.path, patch.targetContent);
         } else {
           await this.workspace.applyPatch(patch.patch);

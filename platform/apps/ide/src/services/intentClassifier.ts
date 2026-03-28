@@ -68,6 +68,8 @@ export function classifyIntent(prompt: string): IntentResult {
     { pattern: /(\.tsx?|\.py|\.js|\.ts)\s+(file|code)/i, score: 0.7 },
     { pattern: /(improve|optimize)\s+.*(performance|readability)/i, score: 0.75 },
     { pattern: /(convert|transform|change).*(to|from)/i, score: 0.75 },
+    { pattern: /(design|scaffold|set up|setup|organize|organise).*(monorepo|workspace|folder structure|project structure|package\.json|tsconfig|vite|turbo)/i, score: 0.92 },
+    { pattern: /(monorepo|workspace|folder structure|project structure).*(react|vite|next|pnpm|turbo|package)/i, score: 0.9 },
   ];
   
   // === COMPLEX BUILD PATTERNS ===
@@ -86,7 +88,8 @@ export function classifyIntent(prompt: string): IntentResult {
     { pattern: /(database|postgres|mysql|mongodb|sql)/i, score: 0.9 },
     { pattern: /(rest api|graphql|endpoint)/i, score: 0.85 },
     { pattern: /(deploy|docker|kubernetes|ci\/cd)/i, score: 0.9 },
-    { pattern: /(landing page|portfolio|blog|e.?commerce)/i, score: 0.9 },
+    { pattern: /(build|create|make|develop).*(landing page|portfolio|blog|e.?commerce)/i, score: 0.9 },
+    { pattern: /(landing page|portfolio|blog|e.?commerce).*(site|website|app|project)/i, score: 0.82 },
     { pattern: /(clone|recreate|duplicate).*(site|app|website)/i, score: 0.95 },
     { pattern: /^(make).*(production ready|production grade)/i, score: 0.95 },
   ];
@@ -102,6 +105,15 @@ export function classifyIntent(prompt: string): IntentResult {
   
   for (const { pattern, score } of complexBuildPatterns) {
     if (pattern.test(p)) complexBuildScore = Math.max(complexBuildScore, score);
+  }
+
+  const structureScaffoldPrompt =
+    /(design|scaffold|set up|setup|organize|organise|create).*(monorepo|workspace|folder structure|project structure)/i.test(p)
+    || /(package\.json|tsconfig|vite|turbo|pnpm workspace|workspaces)/i.test(p);
+
+  if (structureScaffoldPrompt) {
+    simpleEditScore = Math.max(simpleEditScore, 0.92);
+    complexBuildScore = Math.min(complexBuildScore, 0.78);
   }
   
   // Also check for explicit negative patterns

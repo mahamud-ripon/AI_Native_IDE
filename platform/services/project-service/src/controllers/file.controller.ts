@@ -189,8 +189,12 @@ export async function getFile(
       content = file.inlineContent.toString('utf-8');
     } else if (file.s3Key) {
       // S3 storage path - download from object storage
-      const result = await storageService.downloadFile(file.s3Key);
-      content = result.content;
+      try {
+        const result = await storageService.downloadFile(file.s3Key);
+        content = result.content;
+      } catch (s3Err: any) {
+        logger.warn('S3 download failed in getFile', { s3Key: file.s3Key, error: s3Err.message });
+      }
     }
     // Files with neither field are directories - content stays ''
 
@@ -266,8 +270,13 @@ export async function getFileContent(
       content = file.inlineContent.toString('utf-8');
     } else if (file.s3Key) {
       // S3 storage path - download from object storage
-      const result = await storageService.downloadFile(file.s3Key);
-      content = result.content;
+      try {
+        const result = await storageService.downloadFile(file.s3Key);
+        content = result.content;
+      } catch (s3Err: any) {
+        logger.warn('S3 download failed in getFileContent', { path, s3Key: file.s3Key, error: s3Err.message });
+        // Return empty content rather than 500
+      }
     }
     // Files with neither field are directories - content stays ''
 
@@ -276,6 +285,8 @@ export async function getFileContent(
     reply.send({
       success: true,
       data: {
+        id: file.id,
+        fileId: file.id,
         path: file.path,
         content,
         language: file.language,
@@ -455,15 +466,28 @@ export async function updateFile(
     // Upload new content to S3
     const uploadResult = await storageService.uploadFile(id, file.path, data.content);
 
-    // Create file version
-    await prisma.fileVersion.create({
-      data: {
-        fileId: file.id,
-        savedById: userId,
-        contentHash: file.contentHash ?? '',
-        s3Key: file.s3Key,
-      },
-    });
+    // Create file version (best-effort — skip if user doesn't exist in DB)
+    try {
+      await prisma.fileVersion.create({
+        data: {
+          fileId: file.id,
+          savedById: userId,
+          contentHash: file.contentHash ?? '',
+          s3Key: file.s3Key,
+        },
+      });
+    } catch (versionError: any) {
+      // FK constraint on savedById — user may not exist (e.g. system/AI user)
+      if (versionError?.code === 'P2003') {
+        logger.warn('Skipped file version creation (user not found in DB)', {
+          context: 'file-controller',
+          userId,
+          fileId: file.id,
+        });
+      } else {
+        throw versionError;
+      }
+    }
 
     // Update file
     const updatedFile = await prisma.projectFile.update({
@@ -490,6 +514,7 @@ export async function updateFile(
     // Publish file modified event
     await kafkaService.publish('file.modified', {
       id: file.id,
+      fileId: file.id,
       projectId: id,
       path: file.path,
       contentHash: uploadResult.contentHash,
@@ -516,6 +541,7 @@ export async function updateFile(
 /**
  * Delete file (soft delete)
  * DELETE /api/v1/projects/:id/files/:fileId
+ * DELETE /api/v1/projects/:id/files?path=app.py
  */
 export async function deleteFile(
   request: FastifyRequest,
@@ -523,6 +549,7 @@ export async function deleteFile(
 ): Promise<void> {
   const userId = (request as AuthenticatedRequest).user.sub;
   const { id, fileId } = request.params as { id: string; fileId: string };
+  const queryPath = (request.query as { path?: string }).path;
   const traceId = request.id;
 
   try {
@@ -534,8 +561,26 @@ export async function deleteFile(
       }
     }
 
+    // Resolve fileId: from URL param or from ?path= query
+    let resolvedFileId = fileId;
+    if (!resolvedFileId && queryPath) {
+      const branch = await prisma.projectBranch.findFirst({
+        where: { projectId: id, isDefault: true },
+      });
+      if (branch) {
+        const file = await prisma.projectFile.findFirst({
+          where: { projectId: id, branchId: branch.id, path: queryPath, deletedAt: null },
+        });
+        if (file) resolvedFileId = file.id;
+      }
+    }
+
+    if (!resolvedFileId) {
+      throw new NotFoundError('File');
+    }
+
     const file = await prisma.projectFile.findUnique({
-      where: { id: fileId },
+      where: { id: resolvedFileId },
     });
 
     if (!file || file.deletedAt) {
@@ -544,20 +589,21 @@ export async function deleteFile(
 
     // Soft delete
     await prisma.projectFile.update({
-      where: { id: fileId },
+      where: { id: resolvedFileId },
       data: { deletedAt: new Date() },
     });
 
     // Publish file deleted event (for S3 cleanup)
     await kafkaService.publish('file.deleted', {
       id: file.id,
+      fileId: file.id,
       projectId: id,
       path: file.path,
       s3Key: file.s3Key,
       deletedBy: userId,
     });
 
-    logger.info('File deleted', { projectId: id, fileId, userId, traceId });
+    logger.info('File deleted', { projectId: id, fileId: resolvedFileId, userId, traceId });
 
     reply.send({
       success: true,
@@ -614,6 +660,7 @@ export async function moveFile(
     // Publish file moved event
     await kafkaService.publish('file.modified', {
       id: file.id,
+      fileId: file.id,
       projectId: id,
       oldPath: file.path,
       newPath: data.newPath,

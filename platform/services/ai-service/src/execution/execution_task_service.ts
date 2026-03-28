@@ -64,7 +64,10 @@ export class ExecutionTaskService {
         progress: 0,
         currentStage: 'pending',
         stageMessage: 'Task created',
-        options: (request.options ?? undefined) as unknown as Prisma.InputJsonValue,
+        options: { 
+          ...(request.options ?? {}), 
+          workspaceContext: request.workspaceContext 
+        } as unknown as Prisma.InputJsonValue,
         timeoutMs: request.options?.timeoutMs ?? 120000,
         enableRollback: request.options?.enableRollback ?? true,
         enableSandbox: request.options?.enableSandbox ?? true,
@@ -131,6 +134,8 @@ export class ExecutionTaskService {
       options: task.options as Record<string, unknown> ?? {},
       retryCount: task.retryCount,
       maxRetries: task.maxRetries,
+      userId: task.createdBy,
+      workspaceContext: (task.options as any)?.workspaceContext,
     };
 
     await producer.send({

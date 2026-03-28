@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 import type { LLMCompletionRequest, AdapterResponse, LLMStreamChunkEvent } from '../types.js';
 import { estimateCostUsd } from '../pricing.js';
 
@@ -18,14 +18,26 @@ function mapMessages(req: LLMCompletionRequest): ChatCompletionMessageParam[] {
   return req.messages.map((m): ChatCompletionMessageParam => {
     if (m.role === 'system') {
       return { role: 'system', content: m.content };
-    } else if (m.role === 'user') {
-      return { role: 'user', content: m.content };
     } else if (m.role === 'assistant') {
       return { role: 'assistant', content: m.content };
+    } else if (m.role === 'tool') {
+      return { role: 'tool', content: m.content, tool_call_id: m.toolCallId ?? m.name ?? '' };
     } else {
-      return { role: 'tool', content: m.content, tool_call_id: m.name ?? '' };
+      return { role: 'user', content: m.content };
     }
   });
+}
+
+function mapTools(req: LLMCompletionRequest): ChatCompletionTool[] | undefined {
+  if (!req.tools || req.tools.length === 0) return undefined;
+  return req.tools.map((t: any) => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
 }
 
 export function createOpenAIAdapter(config: OpenAIAdapterConfig) {
@@ -43,10 +55,18 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig) {
         messages: mapMessages(req),
         temperature: req.temperature ?? 0.7,
         max_tokens: req.maxTokens ?? 4096,
+        tools: mapTools(req),
       });
 
       const choice = response.choices[0];
       const outputText = choice?.message?.content ?? '';
+
+      // Extract tool calls if present
+      const toolCalls = choice?.message?.tool_calls?.map(tc => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: JSON.parse(tc.function.arguments),
+      }));
 
       const tokensIn = response.usage?.prompt_tokens ?? 0;
       const tokensOut = response.usage?.completion_tokens ?? 0;
@@ -59,6 +79,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig) {
           provider: 'openai',
           model,
           outputText,
+          toolCalls,
           tokensIn,
           tokensOut,
           latencyMs,

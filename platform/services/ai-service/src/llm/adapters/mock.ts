@@ -100,7 +100,9 @@ export function createMockAdapter(config: MockAdapterConfig = {}) {
   /**
    * Check if we should simulate a failure
    */
-  function shouldFail(): boolean {
+  function shouldFail(request: LLMCompletionRequest): boolean {
+    const inputText = request.messages.map(m => m.content).join(' ').toLowerCase();
+    if (inputText.includes('fail-immediately')) return true;
     return Math.random() < failureRate;
   }
 
@@ -114,8 +116,8 @@ export function createMockAdapter(config: MockAdapterConfig = {}) {
     // Simulate latency
     await simulateLatency();
 
-    // Simulate random failure for retry testing
-    if (shouldFail()) {
+    // Trigger failure
+    if (shouldFail(request)) {
       return {
         ok: false,
         error: 'Mock provider simulated failure (for retry testing)',
@@ -123,8 +125,25 @@ export function createMockAdapter(config: MockAdapterConfig = {}) {
       };
     }
 
+    // Support empty response testing
+    const inputText = request.messages.map(m => m.content).join(' ').toLowerCase();
+    if (inputText.includes('return-empty')) {
+      return {
+        ok: true,
+        response: {
+          provider: 'mock' as LLMProvider,
+          model,
+          outputText: '',
+          tokensIn: calculateTokens(inputText),
+          tokensOut: 0,
+          latencyMs,
+          costUsd: 0,
+          cacheHit: false,
+        },
+      };
+    }
+
     // Calculate input tokens
-    const inputText = request.messages.map(m => m.content).join(' ');
     const tokensIn = calculateTokens(inputText);
 
     // Generate response
@@ -169,7 +188,7 @@ export function createMockAdapter(config: MockAdapterConfig = {}) {
     };
 
     // Simulate random failure at start
-    if (shouldFail()) {
+    if (shouldFail(request)) {
       yield {
         type: 'error',
         data: {

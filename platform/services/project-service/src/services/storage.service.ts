@@ -50,6 +50,9 @@ class StorageService {
       endpoint: endpoint,
       forcePathStyle: !!endpoint, // Required for MinIO/LocalStack
       tls: endpoint?.startsWith('https'),
+      // Fix MinIO checksum mismatch errors during download
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
     
     // Log initialization

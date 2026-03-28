@@ -103,6 +103,11 @@ export class PatchBuilder {
         break;
 
       case 'delete':
+        // If the file doesn't exist, skip this delete (nothing to delete)
+        if (!originalContent) {
+          console.warn(`[PatchBuilder] Skipping delete for non-existent file: ${edit.path}`);
+          return null;
+        }
         targetContent = '';
         break;
 
@@ -269,24 +274,43 @@ Return the complete modified file.`;
     // For production, use a proper diff library like 'diff'
     const diff: string[] = [];
 
-    // Header
-    diff.push(`--- a/${path}`);
-    diff.push(`+++ b/${path}`);
+    // Detect delete operation (target is empty, original has content)
+    const isDelete = original.length > 0 && target.length === 0;
 
-    // Find changes using simple LCS approximation
-    const changes = this.computeDiff(originalLines, targetLines);
+    if (isDelete) {
+      // Proper git-format delete diff header
+      diff.push(`deleted file mode 100644`);
+      diff.push(`--- a/${path}`);
+      diff.push(`+++ /dev/null`);
 
-    for (const change of changes) {
-      diff.push(`@@ -${change.oldStart},${change.oldCount} +${change.newStart},${change.newCount} @@`);
-
-      for (const line of change.removed) {
-        diff.push(`-${line}`);
+      // All original lines are removed
+      const lines = originalLines.length;
+      if (lines > 0) {
+        diff.push(`@@ -1,${lines} +0,0 @@`);
+        for (const line of originalLines) {
+          diff.push(`-${line}`);
+        }
       }
-      for (const line of change.added) {
-        diff.push(`+${line}`);
-      }
-      for (const line of change.context) {
-        diff.push(` ${line}`);
+    } else {
+      // Header for create/modify
+      diff.push(`--- a/${path}`);
+      diff.push(`+++ b/${path}`);
+
+      // Find changes using simple LCS approximation
+      const changes = this.computeDiff(originalLines, targetLines);
+
+      for (const change of changes) {
+        diff.push(`@@ -${change.oldStart},${change.oldCount} +${change.newStart},${change.newCount} @@`);
+
+        for (const line of change.removed) {
+          diff.push(`-${line}`);
+        }
+        for (const line of change.added) {
+          diff.push(`+${line}`);
+        }
+        for (const line of change.context) {
+          diff.push(` ${line}`);
+        }
       }
     }
 

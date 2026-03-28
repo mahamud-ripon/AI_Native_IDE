@@ -77,12 +77,19 @@ export const KafkaConsumer = {
 
 async function handleFileModified(payload: {
   projectId: string;
-  fileId: string;
+  fileId?: string;
+  id?: string;
   path?: string;
   content?: string;
 }): Promise<void> {
+  const fileId = payload.fileId || payload.id;
+  if (!fileId) {
+    logger.warn({ payload }, 'Skipping file.modified event without file id');
+    return;
+  }
+
   const file = await prisma.projectFile.findUnique({
-    where: { id: payload.fileId },
+    where: { id: fileId },
     select: {
       id: true,
       path: true,
@@ -96,7 +103,7 @@ async function handleFileModified(payload: {
 
   await FileIndexer.indexFile(
     payload.projectId,
-    file.id,
+    fileId,
     file.inlineContent.toString(),
     file.path,
     file.language || 'text',
@@ -106,9 +113,16 @@ async function handleFileModified(payload: {
 
 async function handleFileDeleted(payload: {
   projectId: string;
-  fileId: string;
+  fileId?: string;
+  id?: string;
 }): Promise<void> {
-  await FileIndexer.deleteFile(payload.projectId, payload.fileId);
+  const fileId = payload.fileId || payload.id;
+  if (!fileId) {
+    logger.warn({ payload }, 'Skipping file.deleted event without file id');
+    return;
+  }
+
+  await FileIndexer.deleteFile(payload.projectId, fileId);
 }
 
 async function handleProjectCreated(payload: { projectId: string }): Promise<void> {

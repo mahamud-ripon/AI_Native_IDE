@@ -5,6 +5,7 @@ import type { WorkspaceFileEntry } from '../../workspace/fileRegistry';
 import { workspaceService } from '../../workspace/workspaceService';
 import { workspaceSocket } from '../../services/workspaceSocket';
 import { editorModelManager } from '../../core/editor/modelManager';
+import { ideEventBus } from '../../stores/ideStore';
 import styles from './Panel.module.css';
 
 export function FileExplorerPanel() {
@@ -31,7 +32,7 @@ export function FileExplorerPanel() {
     };
   }, [loadFiles, refreshKey]);
 
-  // Subscribe to workspace file events for real-time updates
+    // Subscribe to workspace file events for real-time updates
   useEffect(() => {
     if (!projectId) return;
 
@@ -40,8 +41,8 @@ export function FileExplorerPanel() {
     // Connect to workspace WebSocket
     workspaceSocket.connect(pid).catch(console.error);
 
-    // Subscribe to file events
-    const unsubscribe = workspaceSocket.subscribe((event) => {
+    // Subscribe to remote file events
+    const unsubscribeSocket = workspaceSocket.subscribe((event) => {
       if (event.projectId === pid) {
         console.log('File event received:', event.eventType, event.filePath);
         
@@ -55,8 +56,23 @@ export function FileExplorerPanel() {
       }
     });
 
+    // Subscribe to LOCAL ideEventBus for immediate feedback (Replit-style reactivity)
+    const handleLocalFileEvent = (payload: { path: string }) => {
+      console.log('Local file event received on bus:', payload.path);
+      setRefreshKey(k => k + 1);
+    };
+    
+    ideEventBus.on('file:created', handleLocalFileEvent);
+    ideEventBus.on('file:changed', handleLocalFileEvent);
+    ideEventBus.on('file:deleted', handleLocalFileEvent);
+    ideEventBus.on('tree:refresh', handleLocalFileEvent);
+
     return () => {
-      unsubscribe();
+      unsubscribeSocket();
+      ideEventBus.off('file:created', handleLocalFileEvent);
+      ideEventBus.off('file:changed', handleLocalFileEvent);
+      ideEventBus.off('file:deleted', handleLocalFileEvent);
+      ideEventBus.off('tree:refresh', handleLocalFileEvent);
     };
   }, [projectId]);
 

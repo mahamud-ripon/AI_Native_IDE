@@ -18,6 +18,7 @@ import {
 } from '../execution/index.js';
 import { config } from '../config.js';
 import { getLLMGateway } from '../llm/gateway.js';
+import { LLMStreamChunkEvent } from '../llm/types.js';
 import { prisma } from '@workspace/database';
 
 // Redis for rate limiting
@@ -40,55 +41,104 @@ const VAGUE_PATTERNS = [
   /^\s*(ok|okay|sure|cool|nice|great)\s*[!.]*\s*$/i,
 ];
 
+const CODING_INTENT_PATTERNS = [
+  /create\s+.*(file|script|app|project|template|function|class)/i,
+  /build\s+.*(project|app|application|page|ui)/i,
+  /design\s+.*(monorepo|workspace|folder structure|project structure|architecture|scaffold)/i,
+  /generate\s+.*(code|logic|test|file)/i,
+  /write\s+.*(code|function|class|logic|file|script)/i,
+  /modify\s+.*(file|code|logic|content)/i,
+  /update\s+.*(file|code|logic|dependency)/i,
+  /fix\s+.*(bug|error|issue|code|vulnerability)/i,
+  /refactor\s+.*(code|logic|file|function)/i,
+  /add\s+.*(test|feature|route|endpoint|component|file)/i,
+  /delete\s+.*(file|directory|folder|asset)/i,
+  /remove\s+.*(file|directory|folder|asset)/i,
+  /deploy\s+.*/i,
+  /initialize\s+.*(project|repo|git)/i,
+  /(monorepo|workspace|folder structure|project structure|boilerplate|starter|scaffold|package\.json|tsconfig\.json|vite\.config|turbo\.json|pnpm-workspace)/i,
+  /\.(html|js|ts|tsx|py|css|json|md|go|rs|java|cpp|h|rb|php|sh|yml|yaml|dockerfile|makefile)$/i,
+];
+
+const PROJECT_SCAFFOLDING_PATTERNS = [
+  /design\s+.*(monorepo|workspace|folder structure|project structure|scaffold)/i,
+  /(monorepo|workspace)\s+(structure|setup|scaffold|starter)/i,
+  /(folder|project)\s+structure/i,
+  /set\s+up\s+.*(workspace|monorepo|project|folder structure)/i,
+  /start\s+from\s+scratch/i,
+  /(package\.json|tsconfig\.json|vite\.config|turbo\.json|pnpm-workspace|apps\/|packages\/)/i,
+  /create\s+.*(monorepo|workspace|starter|boilerplate)/i,
+];
+
+const HEAVY_BUILD_PATTERNS = [
+  /authentication|login|signup|oauth/i,
+  /database|postgres|mysql|mongodb|redis/i,
+  /backend|server|api|endpoint|microservice/i,
+  /docker|kubernetes|ci\/cd|deployment/i,
+  /payment|billing|stripe|webhook/i,
+  /queue|worker|kafka|socket|websocket/i,
+  /full.?stack/i,
+];
+
 /**
  * Check if prompt is an obvious short greeting.
- * Only returns true for clear-cut cases; everything else goes to the LLM classifier.
  */
 function isVagueGreeting(prompt: string): boolean {
   const p = prompt.trim();
-  for (const pattern of VAGUE_PATTERNS) {
-    if (pattern.test(p)) return true;
-  }
-  return false;
+  return VAGUE_PATTERNS.some(pattern => pattern.test(p));
 }
 
 /**
- * Classify intent using LLM Gateway (fast model).
- * Falls back to rule-based if LLM fails.
+ * Check if prompt is an obvious coding intent.
+ */
+function isObviousCodingIntent(prompt: string): boolean {
+  const p = prompt.trim();
+  // Check if prompt is literally a file path
+  if (/\.[a-z0-9]+$/i.test(p) && p.length < 50 && !p.includes(' ')) return true;
+  return CODING_INTENT_PATTERNS.some(pattern => pattern.test(p));
+}
+
+function isProjectScaffoldingIntent(prompt: string): boolean {
+  const p = prompt.trim();
+  return PROJECT_SCAFFOLDING_PATTERNS.some(pattern => pattern.test(p));
+}
+
+function hasHeavyBuildSignals(prompt: string): boolean {
+  return HEAVY_BUILD_PATTERNS.some(pattern => pattern.test(prompt));
+}
+
+function isLikelyConversationPrompt(prompt: string): boolean {
+  const p = prompt.trim();
+
+  if (isVagueGreeting(p)) {
+    return true;
+  }
+
+  if (isObviousCodingIntent(p) || isProjectScaffoldingIntent(p)) {
+    return false;
+  }
+
+  return /^(what|who|why|how|can you|could you|would you|tell me|explain)\b/i.test(p)
+    && !/(file|project|app|workspace|repo|monorepo|component|api|bug|error|function|class|build|create|write|folder|structure|package\.json|tsconfig)/i.test(p);
+}
+
+/**
+ * Classify intent: CHITCHAT vs WORKFLOW.
  */
 async function classifyIntent(
   prompt: string,
   chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): Promise<'CHITCHAT' | 'WORKFLOW'> {
-  // Fast path: only short-circuit for obvious greetings
   if (isVagueGreeting(prompt)) return 'CHITCHAT';
+  if (isObviousCodingIntent(prompt)) return 'WORKFLOW';
 
   try {
     const gateway = await getLLMGateway();
+    const systemContent = `You are an intent classifier for the execution endpoint of an AI coding assistant. Classify the user's message as CHITCHAT or WORKFLOW.
 
-    // Build classification messages with optional history for context
-    const systemContent = chatHistory && chatHistory.length > 0
-      ? `You are an intent classifier for an AI coding assistant. Classify the user's message as CHITCHAT or WORKFLOW.
-
-CHITCHAT: greetings, questions about the AI, asking how it works, small talk, opinions, "what can you do", "tell me about", casual conversation, asking for explanations or advice
-WORKFLOW: ONLY when the user explicitly asks to CREATE, BUILD, GENERATE, WRITE, ADD, MODIFY, FIX, DELETE, DEPLOY, or REFACTOR actual code, files, or projects
-
-Important rules:
-- Questions like "what is X?" or "how does X work?" are CHITCHAT
-- "build me a project" is WORKFLOW but "how to build a project?" is CHITCHAT
-- If the user is repeating themselves, classify as CHITCHAT
-- When in doubt, classify as CHITCHAT
-
-Reply with exactly one word: CHITCHAT or WORKFLOW`
-      : `You are an intent classifier for an AI coding assistant. Classify the user's message as CHITCHAT or WORKFLOW.
-
-CHITCHAT: greetings, questions about the AI, asking how it works, small talk, opinions, "what can you do", "tell me about", casual conversation, asking for explanations or advice
-WORKFLOW: ONLY when the user explicitly asks to CREATE, BUILD, GENERATE, WRITE, ADD, MODIFY, FIX, DELETE, DEPLOY, or REFACTOR actual code, files, or projects
-
-Important rules:
-- Questions like "what is X?" or "how does X work?" are CHITCHAT
-- "build me a project" is WORKFLOW but "how to build a project?" is CHITCHAT
-- When in doubt, classify as CHITCHAT
+CHITCHAT: greetings, gratitude, brief small talk, or questions purely about the AI itself.
+WORKFLOW: Any request to create, build, modify, fix, scaffold, analyze, continue, or work on the current project, workspace, code, files, or app.
+WORKFLOW also includes follow-up requests in an active build flow such as "do it in my project", "start from scratch", "continue", or "use this project".
 
 Reply with exactly one word: CHITCHAT or WORKFLOW`;
 
@@ -96,7 +146,6 @@ Reply with exactly one word: CHITCHAT or WORKFLOW`;
       { role: 'system', content: systemContent },
     ];
 
-    // Append recent history (last 4 messages) for context
     if (chatHistory && chatHistory.length > 0) {
       for (const entry of chatHistory.slice(-4)) {
         messages.push({ role: entry.role, content: entry.content });
@@ -114,21 +163,73 @@ Reply with exactly one word: CHITCHAT or WORKFLOW`;
       messages,
       maxTokens: 10,
     });
-    const result = response.outputText.trim().toUpperCase();
-    console.log(`[classifyIntent] LLM classified "${prompt.slice(0, 50)}..." as ${result} (provider: ${response.provider})`);
-    return result.includes('WORKFLOW') ? 'WORKFLOW' : 'CHITCHAT';
+    
+    const resultText = response.outputText.trim().toUpperCase();
+    return resultText.includes('WORKFLOW') ? 'WORKFLOW' : 'CHITCHAT';
   } catch (err: any) {
-    console.warn(`[classifyIntent] LLM failed (${err.message}), defaulting to CHITCHAT`);
-    return 'CHITCHAT';
+    console.warn(`[classifyIntent] LLM failed (${err.message}), defaulting to WORKFLOW`);
+    return 'WORKFLOW';
   }
 }
 
+function hasExplicitWorkflowHint(body: CreateTaskBody): boolean {
+  return (
+    body.metadata?.intent === 'simple_edit' ||
+    body.metadata?.intent === 'complex_build' ||
+    Boolean(body.options?.mode) ||
+    Boolean(body.workflowRunId) ||
+    Boolean(body.agentName) ||
+    isObviousCodingIntent(body.instruction) ||
+    isProjectScaffoldingIntent(body.instruction)
+  );
+}
+
+function shouldAllowChatFallback(body: CreateTaskBody): boolean {
+  const hasWorkspaceSignal = Boolean(
+    body.workspaceContext?.activeFile ||
+    body.workspaceContext?.fileTree?.length ||
+    body.workspaceContext?.openTabs?.length
+  );
+
+  if (hasExplicitWorkflowHint(body)) {
+    return false;
+  }
+
+  if (hasWorkspaceSignal) {
+    return isVagueGreeting(body.instruction);
+  }
+
+  if (body.metadata?.intent === 'conversation') {
+    return isLikelyConversationPrompt(body.instruction);
+  }
+
+  return isLikelyConversationPrompt(body.instruction);
+}
+
+function inferWorkflowMode(body: CreateTaskBody): ExecutionTaskOptions['mode'] | undefined {
+  if (body.options?.mode) {
+    return body.options.mode;
+  }
+
+  const prompt = body.instruction;
+
+  if (isProjectScaffoldingIntent(prompt) && !hasHeavyBuildSignals(prompt)) {
+    return 'direct';
+  }
+
+  if (body.metadata?.intent === 'simple_edit') {
+    return 'direct';
+  }
+
+  if (body.metadata?.intent === 'complex_build' || hasHeavyBuildSignals(prompt)) {
+    return 'plan_execute';
+  }
+
+  return undefined;
+}
+
 /**
- * Handle CHITCHAT: stream a chat response directly from LLM Gateway.
- */
-/**
- * Handle CHITCHAT: collect full response and return as JSON.
- * The frontend's sendToAIService expects a JSON response with { type: 'chat' }.
+ * Handle CHITCHAT: stream response and support tool calls.
  */
 async function handleChitchat(
   prompt: string,
@@ -141,7 +242,8 @@ async function handleChitchat(
     activeFile?: string | null;
     activeFileContent?: string | null;
     openTabs?: string[];
-  }
+  },
+  modelHint?: string
 ): Promise<void> {
   const taskId = `chat_${Date.now()}`;
   let fullContent = '';
@@ -151,243 +253,209 @@ async function handleChitchat(
 
   try {
     const gateway = await getLLMGateway();
-
-    // Build workspace context block for the system prompt
     let workspaceBlock = '';
+    
     if (workspaceContext) {
       const parts: string[] = [];
-
       if (workspaceContext.fileTree && workspaceContext.fileTree.length > 0) {
-        const fileList = workspaceContext.fileTree.slice(80).map(f => `  ${f}`).join('\n');
-        parts.push(`PROJECT FILES (${workspaceContext.fileTree.length} total):\n${fileList}`);
+        const fileList = workspaceContext.fileTree.slice(0, 80).map(f => `  ${f}`).join('\n');
+        parts.push(`PROJECT FILES:\n${fileList}`);
       }
-
-      if (workspaceContext.activeFile) {
-        parts.push(`ACTIVE FILE: ${workspaceContext.activeFile}`);
-      }
-
-      if (workspaceContext.activeFileContent) {
-        const content = workspaceContext.activeFileContent.slice(0, 8000);
-        parts.push(`ACTIVE FILE CONTENT:\n\`\`\`\n${content}\n\`\`\``);
-      }
-
-      if (workspaceContext.openTabs && workspaceContext.openTabs.length > 0) {
-        parts.push(`OPEN TABS: ${workspaceContext.openTabs.join(', ')}`);
-      }
-
-      if (parts.length > 0) {
-        workspaceBlock = `\n\n## Workspace Context\n${parts.join('\n\n')}`;
-      }
+      if (workspaceContext.activeFile) parts.push(`ACTIVE FILE: ${workspaceContext.activeFile}`);
+      if (parts.length > 0) workspaceBlock = `\n\n## Workspace\n${parts.join('\n\n')}`;
     }
 
-    // Build system prompt with workspace awareness
-    const systemPrompt = `You are Bolt, a friendly AI coding assistant in a cloud IDE.${workspaceBlock}
+    const systemPrompt = `You are Bolt, a friendly AI coding assistant.${workspaceBlock}
 
-IMPORTANT INSTRUCTIONS:
-- You CAN see the user's project files listed above. Reference them by name when relevant.
-- For greetings and small talk, respond warmly and briefly. Do NOT generate code for greetings.
-- When the user asks about their files or project, refer to the file list you can see.
-- If the user asks "what files do I have?" or "what can you see?", list the files from the PROJECT FILES section.
-- Only generate code when explicitly asked to build or modify something.
-- If generating code, consider existing files to avoid duplicates.`;
+## Tool Calling (INTERNAL)
+If you need to edit files, use:
+<tool_call>
+<function=write_file>
+<parameter=path>path</parameter>
+<parameter=content>code</parameter>
+</tool_call>`;
 
-    // Build messages with optional context from chat history
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
     ];
 
-    // Append recent chat history (last 6 messages) for context awareness
     if (chatHistory && chatHistory.length > 0) {
       for (const entry of chatHistory.slice(-6)) {
         messages.push({ role: entry.role, content: entry.content });
       }
     }
-
     messages.push({ role: 'user', content: prompt });
 
-    for await (const chunk of gateway.stream({
+    // Stream timeout: if no chunks are received for 15s, stop and fallback
+    const STREAM_TIMEOUT_MS = 15000;
+    let lastChunkTime = Date.now();
+
+    const streamIterator = gateway.stream({
       workflowId: taskId,
       projectId,
       agentName: 'chat',
       stepName: 'respond',
       taskType: 'chat',
+      modelHint: modelHint || undefined,
       messages,
       maxTokens: 1024,
       userId,
-    })) {
+    });
+
+    while (true) {
+      const timeoutPromise = new Promise<{ done: boolean; value: null }>((resolve) => 
+        setTimeout(() => resolve({ done: false, value: null }), 1000)
+      );
+      
+      const nextPromise = streamIterator.next();
+      const result = await Promise.race([nextPromise, timeoutPromise]);
+
+      if (result.value === null) {
+        // Timeout happened
+        if (Date.now() - lastChunkTime > STREAM_TIMEOUT_MS) {
+          console.warn(`[handleChitchat] Stream stalled for ${taskId}, aborting...`);
+          errorDetail = 'Stream stalled';
+          break;
+        }
+        continue;
+      }
+
+      const { value: chunk, done } = result as IteratorResult<LLMStreamChunkEvent>;
+      if (done) break;
+
       chunkCount++;
-
-      if (chunk.type === 'meta') {
-        providerName = chunk.data.provider;
-        console.log(`[handleChitchat] Stream started: provider=${chunk.data.provider}, model=${chunk.data.model}`);
-      }
-
-      if (chunk.type === 'chunk') {
-        fullContent += chunk.data.textDelta;
-        console.log(`[handleChitchat] chunk #${chunkCount}: "${chunk.data.textDelta.slice(0, 40)}..."`);
-      }
-
-      if (chunk.type === 'done') {
-        console.log(`[handleChitchat] Stream done: tokensIn=${chunk.data.tokensIn}, tokensOut=${chunk.data.tokensOut}, latency=${chunk.data.latencyMs}ms`);
-      }
-
-      if (chunk.type === 'error') {
-        errorDetail = chunk.data.message;
-        console.error(`[handleChitchat] Stream error chunk: ${chunk.data.message}, retryable=${chunk.data.retryable}`);
-        break;
+      lastChunkTime = Date.now();
+      
+      if (chunk.type === 'meta') providerName = chunk.data.provider;
+      if (chunk.type === 'chunk') fullContent += chunk.data.textDelta;
+      if (chunk.type === 'error') { 
+        console.error(`[handleChitchat] Stream error: ${chunk.data.message}`);
+        errorDetail = chunk.data.message; 
+        break; 
       }
     }
 
-    console.log(`[handleChitchat] Stream finished: totalChunks=${chunkCount}, contentLength=${fullContent.length}, provider=${providerName ?? 'unknown'}`);
+    // === FALLBACK LOGIC ===
+    // If we have no content and encountered an error or stall, try a reliable provider (Groq)
+    if (!fullContent.trim() && (errorDetail || chunkCount === 0)) {
+      console.log(`[handleChitchat] Primary stream ${taskId} failed or empty. Attempting high-reliability fallback...`);
+      try {
+        const fallbackResponse = await gateway.complete({
+          workflowId: `${taskId}_fallback`,
+          projectId,
+          agentName: 'chat-fallback',
+          stepName: 'respond',
+          taskType: 'chat',
+          modelHint: 'groq/llama-3.3-70b-versatile', // Reliable fallback
+          messages,
+          maxTokens: 1024,
+        });
+        fullContent = fallbackResponse.outputText;
+        providerName = `fallback:${fallbackResponse.provider}`;
+        errorDetail = null; // Clear error since we recovered
+      } catch (fallbackErr: any) {
+        console.error(`[handleChitchat] Fallback also failed: ${fallbackErr.message}`);
+      }
+    }
   } catch (err: any) {
-    errorDetail = err?.message ?? 'Unknown LLM error';
-    console.error('[handleChitchat] LLM exception:', err.message, err.stack);
+    console.error(`[handleChitchat] Exception: ${err.message}`);
+    errorDetail = err?.message ?? 'Unknown error';
   }
 
-  // Determine response: real content > error message > fallback prompt
-  let responseMessage: string;
-  let responseStatus: 'completed' | 'error' = 'completed';
+  let responseMessage = fullContent.trim();
+  let toolResults: any[] = [];
 
-  if (fullContent.trim()) {
-    // Real LLM response
-    responseMessage = fullContent;
-  } else if (errorDetail) {
-    // LLM failed — surface the error, don't fake success
-    responseMessage = `Sorry, I couldn't process your message right now. The AI service reported: ${errorDetail}`;
-    responseStatus = 'error';
-  } else {
-    // Empty response with no error (shouldn't happen with mock fallback, but defensive)
-    responseMessage = 'I received your message but could not generate a response. Please try again or rephrase your question.';
-    responseStatus = 'error';
+  if (responseMessage.includes('<tool_call>')) {
+    try {
+      const { createRemoteWorkspace } = await import('../coding/workspace/index.js');
+      const { getToolRouter } = await import('../coding/agent/tool_router.js');
+      const { executeParsedToolCalls } = await import('../coding/agent/index.js');
+      
+      const workspace = createRemoteWorkspace({ projectId, projectServiceUrl: config.projectServiceUrl, internalApiKey: config.internalApiKey, userId });
+      const toolRouter = getToolRouter();
+      toolRouter.setWorkspace(workspace as any);
+      
+      const result = await executeParsedToolCalls(responseMessage, userId, projectId);
+      if (result.hasToolCalls) {
+        toolResults = result.results;
+        responseMessage = responseMessage.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '').trim();
+      }
+    } catch (e) {
+      console.error('[handleChitchat] Tool error:', e);
+    }
   }
 
-  // Persist assistant response to DB (fire-and-forget)
+  if (!responseMessage && toolResults.length > 0) {
+    const failedTools = toolResults.filter(r => !r.success);
+    if (failedTools.length > 0) {
+      responseMessage = `The AI attempted to run tools but encountered errors:\n${failedTools.map(t => `- ${t.name}(${JSON.stringify(t.parameters)}): ${t.error}`).join('\n')}`;
+    } else if (toolResults.some(r => r.success)) {
+      responseMessage = "Task completed successfully.";
+    }
+  } else if (!responseMessage && errorDetail) {
+    responseMessage = `The AI service encountered a temporary problem: ${errorDetail}. Please try a different model or rephrase your request.`;
+  } else if (!responseMessage) {
+    responseMessage = "I received your message but the AI model returned an empty response. I've attempted to log this for the engineering team. Please try again in a few moments.";
+  }
+
+  // Persist
   try {
     const dbConvId = await getOrCreateConversation(projectId, userId, prompt);
     if (dbConvId) await saveMessage(dbConvId, 'assistant', responseMessage);
-  } catch (err: any) {
-    console.warn('[handleChitchat] Failed to persist assistant message:', err.message);
-  }
+  } catch (e) {}
 
   reply.code(200).send({
     taskId,
     type: 'chat',
-    status: responseStatus,
+    status: errorDetail ? 'error' : 'completed',
     message: responseMessage,
-    _meta: {
-      provider: providerName,
-      chunkCount,
-      wasFallback: !fullContent.trim(),
-    },
+    toolCalls: toolResults,
+    _meta: { provider: providerName, chunkCount },
   });
 }
 
 /**
- * Check rate limit for user
- * Returns true if allowed, false if rate limited
+ * Rate limiting check
  */
 async function checkRateLimit(userId: string): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
   const key = `ratelimit:execution:${userId}`;
-  
-  // Get current count
-  const current = await redis.get(key);
-  const count = current ? parseInt(current, 10) : 0;
-  
-  // Get TTL for reset time
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
   const ttl = await redis.ttl(key);
   const resetIn = ttl > 0 ? ttl : RATE_LIMIT_WINDOW_SECONDS;
   
-  if (count >= RATE_LIMIT_MAX_REQUESTS) {
+  if (count > RATE_LIMIT_MAX_REQUESTS) {
     return { allowed: false, remaining: 0, resetIn };
   }
-  
-  // Increment counter
-  const newCount = await redis.incr(key);
-  
-  // Set expiry on first request
-  if (newCount === 1) {
-    await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-  }
-  
-  return {
-    allowed: true,
-    remaining: RATE_LIMIT_MAX_REQUESTS - newCount,
-    resetIn: await redis.ttl(key),
-  };
+  return { allowed: true, remaining: RATE_LIMIT_MAX_REQUESTS - count, resetIn };
 }
 
-// ========================================
-// CHAT PERSISTENCE (Database)
-// ========================================
-
 /**
- * Get or create an ai_conversation row for a project+user pair.
- * Reuses the most recent active conversation within 24h.
- * Falls back gracefully if user doesn't exist in DB.
+ * Handle Conversation Persistence
  */
-async function getOrCreateConversation(
-  projectId: string,
-  userId: string,
-  firstMessage: string
-): Promise<string | null> {
-  // Verify user exists before creating conversation (avoid FK constraint violation)
-  const userExists = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true },
-  });
-  if (!userExists) {
-    console.warn(`[getOrCreateConversation] User ${userId} not found in DB, skipping persistence`);
-    return null;
-  }
+async function getOrCreateConversation(projectId: string, userId: string, firstMessage: string): Promise<string | null> {
+  const userExists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!userExists) return null;
 
-  // Try to find an existing active conversation for this project (within 24h)
   const recent = await prisma.aiConversation.findFirst({
-    where: {
-      projectId,
-      userId,
-      status: { in: ['pending', 'running'] },
-      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-    },
+    where: { projectId, userId, status: { in: ['pending', 'running'] }, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     orderBy: { createdAt: 'desc' },
   });
-
   if (recent) return recent.id;
 
-  // Create a new conversation
   const conv = await prisma.aiConversation.create({
-    data: {
-      projectId,
-      userId,
-      title: firstMessage.slice(0, 100),
-      initialPrompt: firstMessage,
-      status: 'running',
-    },
+    data: { projectId, userId, title: firstMessage.slice(0, 100), initialPrompt: firstMessage, status: 'running' },
   });
   return conv.id;
 }
 
-/**
- * Save a message to the ai_messages table.
- */
-async function saveMessage(
-  conversationId: string,
-  role: 'user' | 'assistant' | 'system',
-  content: string,
-  tokensUsed?: number
-): Promise<void> {
+async function saveMessage(conversationId: string, role: string, content: string): Promise<void> {
   if (!content.trim()) return;
   try {
     await prisma.aiMessage.create({
-      data: {
-        conversationId,
-        role,
-        content,
-        tokensUsed: tokensUsed ?? null,
-      },
+      data: { conversationId, role: role as any, content },
     });
-  } catch (err: any) {
-    console.error(`[saveMessage] Failed to save ${role} message:`, err.message);
-  }
+  } catch (e) {}
 }
 
 // Request schemas
@@ -395,6 +463,8 @@ interface CreateTaskBody {
   projectId: string;
   workspaceId: string;
   instruction: string;
+  modelHint?: string;
+  model?: string;
   conversationId?: string;
   chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   branch?: string;
@@ -402,16 +472,15 @@ interface CreateTaskBody {
   agentName?: string;
   workflowRunId?: string;
   options?: ExecutionTaskOptions;
-  // Workspace context from IDE
   workspaceContext?: {
-    fileTree?: string[];           // List of file paths in the project
-    activeFile?: string | null;    // Currently open file path
-    activeFileContent?: string | null; // Content of the active file
-    openTabs?: string[];           // List of open file tabs
+    fileTree?: string[];
+    activeFile?: string | null;
+    activeFileContent?: string | null;
+    openTabs?: string[];
   };
-  // Execution metadata for observability
   metadata?: {
     agent?: string;
+    intent?: 'conversation' | 'simple_edit' | 'complex_build';
     workflowStage?: string;
     requestId?: string;
     parentTaskId?: string;
@@ -423,36 +492,14 @@ interface CreateTaskBody {
   };
 }
 
-interface GetTaskParams {
-  taskId: string;
-}
-
-interface ListTasksQuery {
-  status?: ExecutionTaskStatus;
-  limit?: number;
-  offset?: number;
-}
-
-interface GetEventsParams {
-  taskId: string;
-}
-
-interface GetEventsQuery {
-  limit?: number;
-  offset?: number;
-  /** Replay events since this sequence number (for reconnection) */
-  sinceSequence?: number;
-}
-
-interface CancelTaskParams {
-  taskId: string;
-}
+interface GetTaskParams { taskId: string; }
+interface ListTasksQuery { status?: ExecutionTaskStatus; limit?: number; offset?: number; }
+interface GetEventsParams { taskId: string; }
+interface GetEventsQuery { limit?: number; offset?: number; sinceSequence?: number; }
+interface CancelTaskParams { taskId: string; }
 
 /**
  * Create execution task
- * POST /ai/execution/tasks
- * 
- * Rate limited: 10 requests/minute/user
  */
 async function createTask(
   request: FastifyRequest<{ Body: CreateTaskBody }>,
@@ -460,426 +507,186 @@ async function createTask(
 ): Promise<void> {
   let userId = request.headers['x-user-id'] as string || ((request as any).user as { id: string } | undefined)?.id;
 
-  if (!userId && request.headers.authorization) {
-    try {
-      const token = request.headers.authorization.split(' ')[1];
-      if (token) {
-        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-        userId = payload.sub;
-      }
-    } catch (e) {
-      // Ignore parsing errors, it will just remain unauthorized
-    }
-  }
-
   if (!userId) {
-    reply.code(401).send({ error: 'Unauthorized: Missing user authentication context' });
+    reply.code(401).send({ error: 'Unauthorized' });
     return;
   }
 
-  // ========================================
-  // RATE LIMITING: Check user quota
-  // ========================================
   const rateLimit = await checkRateLimit(userId);
-  
-  // Set rate limit headers
   reply.header('X-RateLimit-Limit', RATE_LIMIT_MAX_REQUESTS);
   reply.header('X-RateLimit-Remaining', rateLimit.remaining);
   reply.header('X-RateLimit-Reset', rateLimit.resetIn);
   
   if (!rateLimit.allowed) {
-    reply.code(429).send({
-      error: 'Rate limit exceeded',
-      message: `Maximum ${RATE_LIMIT_MAX_REQUESTS} tasks per minute exceeded`,
-      retryAfter: rateLimit.resetIn,
-    });
+    reply.code(429).send({ error: 'Rate limit exceeded' });
     return;
   }
 
   const { projectId, workspaceId, instruction, conversationId, chatHistory, workspaceContext, branch, priority, agentName, workflowRunId, options, metadata } = request.body;
+  const modelHint = request.body.modelHint ?? request.body.model;
 
   if (!projectId || !workspaceId || !instruction) {
-    reply.code(400).send({ error: 'Missing required fields: projectId, workspaceId, instruction' });
+    reply.code(400).send({ error: 'Missing required fields' });
     return;
   }
 
-  // ========================================
-  // PERSISTENCE: Save user message to DB
-  // ========================================
-  let dbConversationId: string | null = null;
+  // Persist
   try {
-    dbConversationId = await getOrCreateConversation(projectId, userId, instruction);
+    const dbConversationId = await getOrCreateConversation(projectId, userId, instruction);
     if (dbConversationId) await saveMessage(dbConversationId, 'user', instruction);
-  } catch (err: any) {
-    console.warn('[createTask] Failed to persist user message:', err.message);
+  } catch (err: any) {}
+
+  // The execution endpoint is workflow-first. We only use chat fallback for
+  // clearly conversational prompts with no project-scaffolding/workflow hints.
+  if (shouldAllowChatFallback(request.body)) {
+    try {
+      const intent = await classifyIntent(instruction, chatHistory);
+      if (intent === 'CHITCHAT') {
+        await handleChitchat(instruction, userId, projectId, reply, chatHistory, workspaceContext, modelHint);
+        return;
+      }
+    } catch (err: any) {}
+  } else {
+    console.log('[ExecutionController] Treating request as workflow-first', {
+      projectId,
+      workspaceId,
+      intent: metadata?.intent,
+      mode: options?.mode,
+    });
   }
 
-  // ========================================
-  // INTENT CLASSIFICATION: CHITCHAT vs WORKFLOW
-  // ========================================
-  try {
-    const intent = await classifyIntent(instruction, chatHistory);
-
-    if (intent === 'CHITCHAT') {
-      // Return chat response directly — don't create a task
-      await handleChitchat(instruction, userId, projectId, reply, chatHistory, workspaceContext);
-      return;
-    }
-  } catch (err: any) {
-    console.error('[createTask] Intent classification failed:', err.message);
-    // Fall through to create a task (WORKFLOW)
-  }
-
-  const taskService = getExecutionTaskService();
-
-  const createRequest: CreateExecutionTaskRequest = {
-    projectId,
-    workspaceId,
-    instruction,
-    userId,
-    conversationId,
-    branch,
-    priority,
-    agentName,
-    workflowRunId,
-    options,
-    metadata,
+  const inferredMode = inferWorkflowMode(request.body);
+  const normalizedOptions: ExecutionTaskOptions = {
+    ...options,
+    mode: inferredMode ?? options?.mode,
+    modelHint,
   };
 
-  // Create and enqueue task
-  const task = await taskService.createAndEnqueue(createRequest);
+  const taskService = getExecutionTaskService();
+  const createRequest: CreateExecutionTaskRequest = {
+    projectId, workspaceId, instruction, userId, conversationId, branch, priority, agentName, workflowRunId,
+    options: normalizedOptions,
+    metadata,
+    workspaceContext,
+  };
 
-  reply.code(201).send({
-    taskId: task.id,
-    status: task.status,
-    message: 'Task created and enqueued',
-  });
+  const task = await taskService.createAndEnqueue(createRequest);
+  reply.code(201).send({ taskId: task.id, status: task.status, message: 'Task created' });
 }
 
-/**
- * Get task by ID
- * GET /ai/execution/tasks/:taskId
- */
-async function getTask(
-  request: FastifyRequest<{ Params: GetTaskParams }>,
-  reply: FastifyReply
-): Promise<void> {
+async function getTask(request: FastifyRequest<{ Params: GetTaskParams }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
-
-  const taskService = getExecutionTaskService();
-  const task = await taskService.getTask(taskId);
-
-  if (!task) {
-    reply.code(404).send({ error: 'Task not found' });
-    return;
-  }
-
+  const task = await getExecutionTaskService().getTask(taskId);
+  if (!task) { reply.code(404).send({ error: 'Task not found' }); return; }
   reply.send(task);
 }
 
-/**
- * Get task summary (lighter response)
- * GET /ai/execution/tasks/:taskId/summary
- */
-async function getTaskSummary(
-  request: FastifyRequest<{ Params: GetTaskParams }>,
-  reply: FastifyReply
-): Promise<void> {
+async function getTaskSummary(request: FastifyRequest<{ Params: GetTaskParams }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
-
-  const taskService = getExecutionTaskService();
-  const summary = await taskService.getTaskSummary(taskId);
-
-  if (!summary) {
-    reply.code(404).send({ error: 'Task not found' });
-    return;
-  }
-
+  const summary = await getExecutionTaskService().getTaskSummary(taskId);
+  if (!summary) { reply.code(404).send({ error: 'Task not found' }); return; }
   reply.send(summary);
 }
 
-/**
- * Get task result (for completed tasks)
- * GET /ai/execution/tasks/:taskId/result
- */
-async function getTaskResult(
-  request: FastifyRequest<{ Params: GetTaskParams }>,
-  reply: FastifyReply
-): Promise<void> {
+async function getTaskResult(request: FastifyRequest<{ Params: GetTaskParams }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
-
-  const taskService = getExecutionTaskService();
-  const result = await taskService.getTaskResult(taskId);
-
-  if (!result) {
-    reply.code(404).send({ error: 'Task not found' });
-    return;
-  }
-
+  const result = await getExecutionTaskService().getTaskResult(taskId);
+  if (!result) { reply.code(404).send({ error: 'Task not found' }); return; }
   reply.send(result);
 }
 
-/**
- * Get task events
- * GET /ai/execution/tasks/:taskId/events
- * 
- * Query params:
- * - limit: Max events to return
- * - offset: Pagination offset
- * - sinceSequence: Replay events since this sequence number (for reconnection)
- */
-async function getTaskEvents(
-  request: FastifyRequest<{ Params: GetEventsParams; Querystring: GetEventsQuery }>,
-  reply: FastifyReply
-): Promise<void> {
+async function getTaskEvents(request: FastifyRequest<{ Params: GetEventsParams; Querystring: GetEventsQuery }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
   const { limit, offset, sinceSequence } = request.query;
-
   const taskService = getExecutionTaskService();
   
-  // Verify task exists
-  const task = await taskService.getTask(taskId);
-  if (!task) {
-    reply.code(404).send({ error: 'Task not found' });
-    return;
-  }
-
-  // If sinceSequence is provided, replay from that point
   if (sinceSequence !== undefined) {
     const events = await taskService.getTaskEventsSince(taskId, sinceSequence);
-    reply.send({
-      taskId,
-      events,
-      count: events.length,
-      sinceSequence,
-      replay: true,
-    });
+    reply.send({ taskId, events, count: events.length, replay: true });
     return;
   }
-
   const events = await taskService.getTaskEvents(taskId, { limit, offset });
-
-  reply.send({
-    taskId,
-    events,
-    count: events.length,
-  });
+  reply.send({ taskId, events, count: events.length });
 }
 
-/**
- * Stream task events (SSE)
- * GET /ai/execution/tasks/:taskId/stream
- */
-async function streamTaskEvents(
-  request: FastifyRequest<{ Params: GetEventsParams }>,
-  reply: FastifyReply
-): Promise<void> {
+async function streamTaskEvents(request: FastifyRequest<{ Params: GetEventsParams }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
-
   const taskService = getExecutionTaskService();
-
-  // Verify task exists
   const task = await taskService.getTask(taskId);
-  if (!task) {
-    reply.code(404).send({ error: 'Task not found' });
-    return;
-  }
+  if (!task) { reply.code(404).send({ error: 'Task not found' }); return; }
 
-  // Set up SSE
-  reply.raw.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-  });
-
-  // Send initial status
+  reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
   const sendEvent = (event: string, data: unknown) => {
     reply.raw.write(`event: ${event}\n`);
     reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
   };
-
-  // Send current task state
   sendEvent('task_status', task);
 
-  // Poll for events (simple approach - could use Kafka consumer for production)
   let lastSequence = -1;
-  let isComplete = false;
-
   const pollInterval = setInterval(async () => {
     try {
       const events = await taskService.getTaskEvents(taskId, { limit: 100, offset: lastSequence + 1 });
-
       for (const event of events) {
         if (event.sequence > lastSequence) {
           sendEvent(event.eventType, event);
           lastSequence = event.sequence;
-
-          // Check for terminal events
-          if (
-            event.eventType === ExecutionEventType.task_completed ||
-            event.eventType === ExecutionEventType.task_failed ||
-            event.eventType === ExecutionEventType.task_cancelled
-          ) {
-            isComplete = true;
+          if (event.eventType === ExecutionEventType.task_completed || event.eventType === ExecutionEventType.task_failed || event.eventType === ExecutionEventType.task_cancelled) {
+            clearInterval(pollInterval);
+            reply.raw.end();
           }
         }
       }
-
-      // Check if task is complete
-      if (isComplete) {
-        clearInterval(pollInterval);
-        reply.raw.end();
-      }
-    } catch (error) {
-      console.error('[ExecutionController] Error polling events:', error);
-    }
+    } catch (e) {}
   }, 1000);
-
-  // Handle client disconnect
-  request.raw.on('close', () => {
-    clearInterval(pollInterval);
-  });
+  request.raw.on('close', () => clearInterval(pollInterval));
 }
 
-/**
- * List tasks by project
- * GET /ai/execution/projects/:projectId/tasks
- */
-async function listProjectTasks(
-  request: FastifyRequest<{ Params: { projectId: string }; Querystring: ListTasksQuery }>,
-  reply: FastifyReply
-): Promise<void> {
+async function listProjectTasks(request: FastifyRequest<{ Params: { projectId: string }; Querystring: ListTasksQuery }>, reply: FastifyReply): Promise<void> {
   const { projectId } = request.params;
   const { status, limit, offset } = request.query;
-
-  const taskService = getExecutionTaskService();
-  const tasks = await taskService.listTasksByProject(projectId, { status, limit, offset });
-
-  reply.send({
-    projectId,
-    tasks,
-    count: tasks.length,
-  });
+  const tasks = await getExecutionTaskService().listTasksByProject(projectId, { status, limit, offset });
+  reply.send({ projectId, tasks, count: tasks.length });
 }
 
-/**
- * Cancel task
- * POST /ai/execution/tasks/:taskId/cancel
- */
-async function cancelTask(
-  request: FastifyRequest<{ Params: CancelTaskParams }>,
-  reply: FastifyReply
-): Promise<void> {
+async function cancelTask(request: FastifyRequest<{ Params: CancelTaskParams }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
-
-  const taskService = getExecutionTaskService();
-
   try {
-    const task = await taskService.cancelTask(taskId);
-    reply.send({
-      taskId: task.id,
-      status: task.status,
-      message: 'Task cancelled',
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    reply.code(400).send({ error: message });
-  }
+    const task = await getExecutionTaskService().cancelTask(taskId);
+    reply.send({ taskId: task.id, status: task.status, message: 'Cancelled' });
+  } catch (e: any) { reply.code(400).send({ error: e.message }); }
 }
 
-/**
- * Retry task
- * POST /ai/execution/tasks/:taskId/retry
- */
-async function retryTask(
-  request: FastifyRequest<{ Params: CancelTaskParams }>,
-  reply: FastifyReply
-): Promise<void> {
+async function retryTask(request: FastifyRequest<{ Params: CancelTaskParams }>, reply: FastifyReply): Promise<void> {
   const { taskId } = request.params;
-
-  const taskService = getExecutionTaskService();
-
   try {
-    const task = await taskService.retryTask(taskId);
-    reply.send({
-      taskId: task.id,
-      status: task.status,
-      retryCount: task.retryCount,
-      message: 'Task re-queued for execution',
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    reply.code(400).send({ error: message });
-  }
+    const task = await getExecutionTaskService().retryTask(taskId);
+    reply.send({ taskId: task.id, status: task.status, message: 'Retrying' });
+  } catch (e: any) { reply.code(400).send({ error: e.message }); }
 }
 
-/**
- * Get chat history for a project
- * GET /ai/chat/history/:projectId
- * Returns recent conversations with their messages
- */
-async function getChatHistory(
-  request: FastifyRequest<{ Params: { projectId: string } }>,
-  reply: FastifyReply
-): Promise<void> {
+async function getChatHistory(request: FastifyRequest<{ Params: { projectId: string } }>, reply: FastifyReply): Promise<void> {
   const { projectId } = request.params;
-  let userId = request.headers['x-user-id'] as string;
-  if (!userId) userId = 'default-user';
-
+  const userId = (request.headers['x-user-id'] as string) || 'default-user';
   try {
     const conversations = await prisma.aiConversation.findMany({
-      where: {
-        projectId,
-        userId,
-      },
+      where: { projectId, userId },
       orderBy: { createdAt: 'desc' },
       take: 5,
-      include: {
-        messages: {
-          orderBy: { createdAt: 'asc' },
-          take: 100,
-        },
-      },
+      include: { messages: { orderBy: { createdAt: 'asc' }, take: 100 } },
     });
-
     reply.send({ conversations });
-  } catch (err: any) {
-    console.error('[getChatHistory] Error:', err.message);
-    reply.code(500).send({ error: 'Failed to load chat history' });
-  }
+  } catch (e: any) { reply.code(500).send({ error: 'Failed' }); }
 }
 
-/**
- * Register execution routes
- */
 export async function registerExecutionRoutes(fastify: FastifyInstance): Promise<void> {
-  // Chat history
   fastify.get('/ai/chat/history/:projectId', getChatHistory);
-
-  // Create task
   fastify.post('/ai/execution/tasks', createTask);
-
-  // Get task
   fastify.get('/ai/execution/tasks/:taskId', getTask);
-
-  // Get task summary
   fastify.get('/ai/execution/tasks/:taskId/summary', getTaskSummary);
-
-  // Get task result
   fastify.get('/ai/execution/tasks/:taskId/result', getTaskResult);
-
-  // Get task events
   fastify.get('/ai/execution/tasks/:taskId/events', getTaskEvents);
-
-  // Stream task events (SSE)
   fastify.get('/ai/execution/tasks/:taskId/stream', streamTaskEvents);
-
-  // List project tasks
   fastify.get('/ai/execution/projects/:projectId/tasks', listProjectTasks);
-
-  // Cancel task
   fastify.post('/ai/execution/tasks/:taskId/cancel', cancelTask);
-
-  // Retry task
   fastify.post('/ai/execution/tasks/:taskId/retry', retryTask);
 }

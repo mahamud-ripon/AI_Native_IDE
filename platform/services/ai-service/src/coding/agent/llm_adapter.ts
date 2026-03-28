@@ -1,65 +1,78 @@
-import { 
-  LLMProvider, 
-  LLMMessage, 
-  LLMOptions, 
-  LLMResponse, 
-  LLMStreamChunk 
+import {
+  LLMProvider,
+  LLMMessage,
+  LLMOptions,
+  LLMResponse,
+  LLMStreamChunk,
+  LLMToolCall
 } from './agent_types.js';
 import { getLLMGateway } from '../../llm/gateway.js';
-import type { LLMCompletionRequest } from '../../llm/types.js';
+import type { LLMCompletionRequest, LLMToolDefinition } from '../../llm/types.js';
 
 export class GatewayLLMProvider implements LLMProvider {
+  private defaultModel?: string;
+
+  constructor(model?: string) {
+    this.defaultModel = model;
+  }
+
   async complete(messages: LLMMessage[], options?: LLMOptions): Promise<LLMResponse> {
     const gateway = await getLLMGateway();
-    
-    // Convert Agent LLMMessage to Gateway format
+
+    const selectedModel = options?.model || this.defaultModel || 'claude-3-7-sonnet-20250219';
+
+    // Convert Agent LLMMessage to Gateway format (preserve tool role + toolCallId)
     const gatewayMessages = messages.map(msg => ({
-      role: msg.role === 'tool' ? 'user' : msg.role,
-      content: msg.content
+      role: msg.role,
+      content: msg.content,
+      ...(msg.role === 'tool' ? { toolCallId: msg.toolCallId ?? msg.name } : {}),
     }));
 
-    // Extract system prompt if present
-    const systemMsg = messages.find(m => m.role === 'system');
-    const systemPrompt = systemMsg?.content;
+    // Convert tools to gateway format
+    const gatewayTools = options?.tools?.map(t => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    }));
 
-    // We need to provide dummy or contextual values for these required fields
-    // since CodeAgent doesn't natively supply them.
     const req: LLMCompletionRequest = {
       workflowId: 'code-agent-run',
       projectId: 'code-agent-project',
       agentName: 'CodeAgent',
       stepName: 'Execution',
       taskType: 'codegen',
-      modelHint: options?.model || 'claude-3-7-sonnet-20250219',
-      messages: gatewayMessages,
+      modelHint: selectedModel,
+      messages: gatewayMessages as LLMCompletionRequest['messages'],
       temperature: options?.temperature,
       maxTokens: options?.maxTokens,
+      tools: gatewayTools as any,
     };
 
     const res = await gateway.complete(req);
 
     return {
       content: res.outputText,
+      toolCalls: res.toolCalls as LLMToolCall[] | undefined,
       usage: {
         promptTokens: res.tokensIn,
         completionTokens: res.tokensOut,
         totalTokens: res.tokensIn + res.tokensOut,
       },
-      finishReason: 'stop'
+      finishReason: res.toolCalls && res.toolCalls.length > 0 ? 'tool_calls' : 'stop',
     };
   }
 
   async *stream(messages: LLMMessage[], options?: LLMOptions): AsyncIterable<LLMStreamChunk> {
     const gateway = await getLLMGateway();
-    
+
     // Convert Agent LLMMessage to Gateway format
     const gatewayMessages = messages.map(msg => ({
-      role: msg.role === 'tool' ? 'user' : msg.role,
-      content: msg.content
+      role: msg.role,
+      content: msg.content,
+      ...(msg.role === 'tool' ? { toolCallId: msg.toolCallId ?? msg.name } : {}),
     }));
 
-    const systemMsg = messages.find(m => m.role === 'system');
-    const systemPrompt = systemMsg?.content;
+    const selectedModel = options?.model || this.defaultModel || 'claude-3-7-sonnet-20250219';
 
     const req: LLMCompletionRequest = {
       workflowId: 'code-agent-run',
@@ -67,8 +80,8 @@ export class GatewayLLMProvider implements LLMProvider {
       agentName: 'CodeAgent',
       stepName: 'Execution',
       taskType: 'codegen',
-      modelHint: options?.model || 'claude-3-7-sonnet-20250219',
-      messages: gatewayMessages,
+      modelHint: selectedModel,
+      messages: gatewayMessages as LLMCompletionRequest['messages'],
       temperature: options?.temperature,
       maxTokens: options?.maxTokens,
     };

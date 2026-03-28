@@ -34,6 +34,7 @@ import { editorModelManager } from '../core/editor/modelManager';
 import { useExecutionStore } from '../state/executionStore';
 import { editorManager } from '../core/editor/editorManager';
 import { aiDecorations } from '../core/editor/aiDecorations';
+import { ideEventBus } from '../stores/ideStore';
 
 // ========================================
 // TYPES
@@ -231,6 +232,9 @@ export function useExecutionStreamIntegration(
             
             // Apply patch to Monaco Editor and WebContainer
             applyPatchToEditor(patch.filePath, patch.newContent);
+            
+            // Notify IDE that file has changed (Reactive UI fix)
+            ideEventBus.emit('file:changed', { path: patch.filePath, content: patch.newContent });
           }
 
           // Handle bulk file sync from syncFiles endpoint (multi-file payload)
@@ -264,6 +268,9 @@ export function useExecutionStreamIntegration(
           if (editor) {
             aiDecorations.highlightLine(editor.id, 1, 'modify', 'AI modified this file');
           }
+
+          // Emit to event bus (Reactive Sidebar fix)
+          ideEventBus.emit('file:changed', { path: filePath });
 
           onFileModified?.(event.taskId, filePath);
           break;

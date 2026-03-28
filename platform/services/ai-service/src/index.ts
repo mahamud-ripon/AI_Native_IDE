@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { aiRoutes } from './routes/api.js';
 import { llmRoutes } from './routes/llm.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
+import { adminConfigRoutes } from './routes/admin_config.js';
 import { disconnectKafka } from './kafka/billing.js';
 import { disconnectLlmKafka } from './kafka/ai_llm_events.js';
 import { 
@@ -57,6 +58,7 @@ async function start() {
     await fastify.register(llmRoutes, { prefix: '/ai/llm' });
     await registerWorkflowRoutes(fastify);
     await registerExecutionRoutes(fastify);
+    await fastify.register(adminConfigRoutes);
 
     fastify.get('/health', async () => ({ status: 'ok', service: 'ai-service' }));
 

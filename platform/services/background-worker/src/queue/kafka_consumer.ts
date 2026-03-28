@@ -102,6 +102,10 @@ async function handleKafkaEvent(topic: string, envelope: any): Promise<void> {
   }
 }
 
+function resolveFileId(payload: { fileId?: string; id?: string }): string | undefined {
+  return payload.fileId || payload.id;
+}
+
 async function handleUserCreated(payload: { userId: string; email: string; name?: string }): Promise<void> {
   const emailQueue = getQueue('email');
   if (!emailQueue) {
@@ -191,15 +195,21 @@ async function handleUsageExceeded(payload: { userId: string; email: string; usa
   logger.info(`Queued usage alert email for user ${payload.userId}`);
 }
 
-async function handleFileModified(payload: { fileId: string; projectId: string; path: string }): Promise<void> {
+async function handleFileModified(payload: { fileId?: string; id?: string; projectId: string; path: string }): Promise<void> {
   const embeddingQueue = getQueue('embedding');
   if (!embeddingQueue) {
     logger.error('Embedding queue not initialized');
     return;
   }
 
+  const fileId = resolveFileId(payload);
+  if (!fileId) {
+    logger.warn(`Skipping file.modified event without file id: ${JSON.stringify(payload)}`);
+    return;
+  }
+
   await embeddingQueue.add('embedding.update_file', {
-    fileId: payload.fileId,
+    fileId,
     projectId: payload.projectId,
     path: payload.path,
   }, {
@@ -208,18 +218,24 @@ async function handleFileModified(payload: { fileId: string; projectId: string; 
     backoff: { type: 'exponential', delay: 60000 },
   });
 
-  logger.info(`Queued embedding update for file ${payload.fileId}`);
+  logger.info(`Queued embedding update for file ${fileId}`);
 }
 
-async function handleFileDeleted(payload: { fileId: string; projectId: string }): Promise<void> {
+async function handleFileDeleted(payload: { fileId?: string; id?: string; projectId: string }): Promise<void> {
   const embeddingQueue = getQueue('embedding');
   if (!embeddingQueue) {
     logger.error('Embedding queue not initialized');
     return;
   }
 
+  const fileId = resolveFileId(payload);
+  if (!fileId) {
+    logger.warn(`Skipping file.deleted event without file id: ${JSON.stringify(payload)}`);
+    return;
+  }
+
   await embeddingQueue.add('embedding.remove_file', {
-    fileId: payload.fileId,
+    fileId,
     projectId: payload.projectId,
   }, {
     priority: 3,
@@ -227,7 +243,7 @@ async function handleFileDeleted(payload: { fileId: string; projectId: string })
     backoff: { type: 'exponential', delay: 30000 },
   });
 
-  logger.info(`Queued embedding removal for file ${payload.fileId}`);
+  logger.info(`Queued embedding removal for file ${fileId}`);
 }
 
 async function handleAITaskFailed(payload: { taskId: string; conversationId: string; provider: string; error: string }): Promise<void> {

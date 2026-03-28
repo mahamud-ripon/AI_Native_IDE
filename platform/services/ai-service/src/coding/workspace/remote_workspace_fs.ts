@@ -71,24 +71,43 @@ export class RemoteWorkspaceFS {
         `${this.baseUrl}/files/content?path=${encodeURIComponent(normalizedPath)}`,
         { headers: this.headers }
       );
-      return res.ok;
+      // 404 = file does not exist; any other response (200 or 500 from S3 failure) = file exists in DB
+      return res.status !== 404;
     } catch {
+      // Network error — assume file might exist to avoid spurious create attempts
       return false;
     }
   }
 
   async readFile(filePath: string, _options?: ReadFileOptions): Promise<string> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
-    const res = await fetch(
-      `${this.baseUrl}/files/content?path=${encodeURIComponent(normalizedPath)}`,
-      { headers: this.headers }
-    );
+    
+    // Safety check: if AI tries to read root or a folder, guide it to list_files
+    if (normalizedPath === '' || normalizedPath === '.' || filePath.endsWith('/')) {
+      throw new Error(`Path '${filePath}' is a directory. To explore directory contents, please use the 'list_files' tool instead.`);
+    }
+
+    const performRead = async () => {
+      const url = `${this.baseUrl}/files/content?path=${encodeURIComponent(normalizedPath)}`;
+      return fetch(url, { headers: this.headers });
+    };
+
+    let res = await performRead();
+
+    // If 404, retry once after a short delay (handles DB sync lag for newly created files)
+    if (res.status === 404) {
+      console.log(`[RemoteWorkspaceFS] File ${normalizedPath} not found in DB, retrying once...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      res = await performRead();
+    }
 
     if (res.status === 404) {
       throw new FileNotFoundError(normalizedPath);
     }
     if (!res.ok) {
-      throw new Error(`Failed to read file ${normalizedPath}: ${res.status} ${await res.text()}`);
+      const errorText = await res.text();
+      console.error(`[RemoteWorkspaceFS] Read error: ${res.status} ${errorText}`);
+      throw new Error(`Failed to read file ${normalizedPath}: ${res.status}. If you are looking for a directory, use list_files.`);
     }
 
     const data = await res.json() as { content?: string };
@@ -98,7 +117,23 @@ export class RemoteWorkspaceFS {
   async writeFile(filePath: string, content: string, _options?: WriteFileOptions): Promise<void> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
 
-    // Try to create the file first; if it exists, update it
+    // Prefer updating existing files first. This avoids noisy POST failures in
+    // project-service when the agent intentionally overwrites files like package.json.
+    const existingFileId = await this.getFileId(normalizedPath);
+    if (existingFileId) {
+      const updateRes = await fetch(`${this.baseUrl}/files/${existingFileId}`, {
+        method: 'PUT',
+        headers: this.headers,
+        body: JSON.stringify({ content }),
+      });
+      if (!updateRes.ok) {
+        throw new Error(`Failed to update file ${normalizedPath}: ${updateRes.status}`);
+      }
+      return;
+    }
+
+    await this.ensureDirectory(normalizedPath);
+
     const createRes = await fetch(`${this.baseUrl}/files`, {
       method: 'POST',
       headers: this.headers,
@@ -110,10 +145,11 @@ export class RemoteWorkspaceFS {
       }),
     });
 
-    if (createRes.ok) return; // Created successfully
+    if (createRes.ok) {
+      return;
+    }
 
     if (createRes.status === 409 || createRes.status === 400) {
-      // File already exists — get fileId then update
       const fileId = await this.getFileId(normalizedPath);
       if (fileId) {
         const updateRes = await fetch(`${this.baseUrl}/files/${fileId}`, {
@@ -126,26 +162,6 @@ export class RemoteWorkspaceFS {
         }
         return;
       }
-    }
-
-    // If 404 for parent directory, create it first and retry
-    if (createRes.status === 404) {
-      await this.ensureDirectory(normalizedPath);
-      // Retry create
-      const retryRes = await fetch(`${this.baseUrl}/files`, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify({
-          path: normalizedPath,
-          content,
-          language: this.detectLanguage(normalizedPath),
-          isDirectory: false,
-        }),
-      });
-      if (!retryRes.ok && retryRes.status !== 409) {
-        throw new Error(`Failed to create file ${normalizedPath}: ${retryRes.status} ${await retryRes.text()}`);
-      }
-      return;
     }
 
     throw new Error(`Failed to write file ${normalizedPath}: ${createRes.status} ${await createRes.text()}`);
@@ -168,6 +184,40 @@ export class RemoteWorkspaceFS {
       extension: f.path.split('.').pop() ?? '',
       lastModified: new Date(),
     }));
+  }
+
+  /**
+   * Delete a file from the remote project via project-service API.
+   * Looks up the file by path, then sends DELETE /files/{fileId}.
+   * If the file is already gone, it returns success (idempotent).
+   */
+  async deleteFile(filePath: string): Promise<void> {
+    const normalizedPath = filePath.replace(/^\.?\//, '');
+    let fileId: string | null = null;
+    
+    try {
+      fileId = await this.getFileId(normalizedPath);
+    } catch (e) {
+      // If we can't look it up, treat as already deleted
+      console.warn(`[RemoteWorkspaceFS] Could not lookup fileId for ${normalizedPath}, assuming deleted:`, e);
+      return;
+    }
+
+    if (!fileId) {
+      // File already gone — success (idempotent)
+      console.log(`[RemoteWorkspaceFS] File ${normalizedPath} not found during delete, returning success.`);
+      return;
+    }
+
+    const res = await fetch(`${this.baseUrl}/files/${fileId}`, {
+      method: 'DELETE',
+      headers: this.headers,
+    });
+
+    if (!res.ok && res.status !== 404) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Failed to delete file ${normalizedPath}: ${res.status} ${body}`);
+    }
   }
 
   async applyPatch(patchContent: string): Promise<PatchResult> {
@@ -269,16 +319,13 @@ export class RemoteWorkspaceFS {
   private async getFileId(filePath: string): Promise<string | null> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
     try {
-      const files = await this.listFiles();
-      const match = files.find(f => f.path === normalizedPath);
-      // Need to get fileId from tree — fall back to content endpoint
       const res = await fetch(
         `${this.baseUrl}/files/content?path=${encodeURIComponent(normalizedPath)}`,
         { headers: this.headers }
       );
       if (res.ok) {
-        const data = await res.json() as { fileId?: string };
-        return data.fileId ?? null;
+        const body = await res.json() as { data?: { fileId?: string } };
+        return body.data?.fileId ?? null;
       }
       return null;
     } catch {

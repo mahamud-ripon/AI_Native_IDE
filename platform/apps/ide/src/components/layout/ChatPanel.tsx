@@ -19,6 +19,8 @@ import {
   Lightbulb,
   AlertCircle,
   Loader2,
+  Cpu,
+  Zap,
 } from 'lucide-react';
 import { useAIChatStore } from '@/state/aiChatStore';
 import { useIDEStore, ideEventBus } from '@/stores/ideStore';
@@ -51,24 +53,42 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
     input,
     isSending,
     mode,
+    selectedModel,
+    availableModels,
     createConversation,
     setInput,
     sendMessage,
     getMessages,
     loadHistory,
+    setSelectedModel,
+    loadAvailableModels,
   } = useAIChatStore();
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = React.useState(false);
+  const [showModelDropdown, setShowModelDropdown] = React.useState(false);
 
-  // Load chat history from backend on first mount
+  // Load chat history from backend on first mount - use ref to prevent duplicate requests
+  const historyLoadedRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!historyLoaded && projectId) {
-      loadHistory(projectId).finally(() => setHistoryLoaded(true));
-    }
-  }, [projectId, historyLoaded, loadHistory]);
+    if (!projectId || historyLoadedRef.current === projectId) return;
+
+    historyLoadedRef.current = projectId;
+    loadHistory(projectId).catch(() => {
+      // Ignore errors - history is optional
+    });
+  }, [projectId, loadHistory]);
+
+  // Load available models from admin API - only once on mount
+  const modelsLoadedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (modelsLoadedRef.current) return;
+
+    modelsLoadedRef.current = true;
+    loadAvailableModels();
+  }, [loadAvailableModels]);
 
   React.useEffect(() => {
     if (!activeConversationId) {
@@ -82,6 +102,19 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Close dropdown when clicking outside
+  React.useEffect(() => {
+    if (!showModelDropdown) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-model-dropdown]')) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showModelDropdown]);
+
   const handleSend = async () => {
     if (!input.trim() || isSending || !activeConversationId) return;
     const instruction = input.trim();
@@ -92,6 +125,7 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
         projectId,
         workspaceId,
         conversationId: activeConversationId,
+        modelHint: selectedModel || undefined,
       });
     } catch (error) {
       console.error('[ChatPanel] Failed to submit task via controller:', error);
@@ -135,6 +169,14 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
         const code = lines.slice(1, -1).join('\n');
         const blockId = `${messageId}-${idx}`;
 
+        // Attempt to extract file path from the code block (e.g., // FILE: path/to/file.tsx)
+        let extractedPath: string | undefined = undefined;
+        const fileMatch = code.match(/(?:\/\/\s*FILE:|\/\*\s*FILE:|<boltAction type="file" filePath=")([^*\s">]+)/i) || 
+                          part.match(/(?:\/\/\s*FILE:|\/\*\s*FILE:)([^*\s]+)/i); // Also check the raw part
+        if (fileMatch && fileMatch[1]) {
+          extractedPath = fileMatch[1].trim();
+        }
+
         return (
           <div
             key={idx}
@@ -154,7 +196,7 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
               <span style={{ fontSize: '11px', color: colors.textMuted }}>{lang || 'code'}</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleApplyCode(code)}
+                  onClick={() => handleApplyCode(code, extractedPath)}
                   className="flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-all"
                   style={{
                     backgroundColor: 'rgba(59, 130, 246, 0.15)',
@@ -165,7 +207,7 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
                   }}
                 >
                   <Check className="h-3 w-3" />
-                  Apply
+                  Apply {extractedPath ? `to ${extractedPath.split('/').pop()}` : ''}
                 </button>
                 <button
                   onClick={() => handleCopyCode(code, blockId)}
@@ -398,21 +440,90 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
               >
                 <Plus className="h-4 w-4" />
               </button>
-              <button
-                className="flex items-center gap-1 rounded"
-                style={{
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  color: colors.textSecondary,
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                }}
-              >
-                <Sparkles className="h-3 w-3" />
-                <span>Sonnet 4.5</span>
-                <ChevronDown className="h-3 w-3" />
-              </button>
+              {/* Model Selector Dropdown */}
+              <div className="relative" data-model-dropdown>
+                <button
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  className="flex items-center gap-1 rounded"
+                  style={{
+                    backgroundColor: showModelDropdown ? colors.bgPanelHover : 'transparent',
+                    border: 'none',
+                    color: colors.textSecondary,
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  <Sparkles className="h-3 w-3" style={{ color: colors.accentColor }} />
+                  <span>{selectedModel ? availableModels.find(m => `${m.provider}/${m.model}` === selectedModel)?.label?.split(' (')[0] || 'Select Model' : 'Select Model'}</span>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+
+                {/* Dropdown */}
+                {showModelDropdown && (
+                  <div
+                    className="absolute bottom-full left-0 mb-2 rounded-lg shadow-xl"
+                    style={{
+                      backgroundColor: colors.bgPanel,
+                      border: `1px solid ${colors.borderColor}`,
+                      width: '260px',
+                      maxHeight: '300px',
+                      overflowY: 'auto',
+                      zIndex: 100,
+                    }}
+                  >
+                    <div style={{ padding: '8px', borderBottom: `1px solid ${colors.borderColor}` }}>
+                      <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500 }}>SELECT MODEL</span>
+                    </div>
+                    {availableModels.length === 0 ? (
+                      <div style={{ padding: '12px', fontSize: '12px', color: colors.textMuted }}>
+                        No models available. Check admin settings.
+                      </div>
+                    ) : (
+                      availableModels.map((model) => {
+                        const modelKey = `${model.provider}/${model.model}`;
+                        const isSelected = selectedModel === modelKey;
+                        return (
+                          <button
+                            key={modelKey}
+                            onClick={() => {
+                              setSelectedModel(modelKey);
+                              setShowModelDropdown(false);
+                            }}
+                            className="w-full flex items-center gap-2 text-left transition-all"
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: isSelected ? colors.accentColor : colors.textPrimary,
+                              fontSize: '12px',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = colors.bgPanelHover;
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            {isSelected ? (
+                              <Check className="h-3 w-3 flex-shrink-0" style={{ color: colors.accentColor }} />
+                            ) : (
+                              <Cpu className="h-3 w-3 flex-shrink-0" style={{ color: colors.textMuted }} />
+                            )}
+                            <div className="flex flex-col">
+                              <span style={{ fontWeight: isSelected ? 500 : 400 }}>{model.label}</span>
+                              <span style={{ fontSize: '10px', color: colors.textMuted }}>{model.provider}</span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">

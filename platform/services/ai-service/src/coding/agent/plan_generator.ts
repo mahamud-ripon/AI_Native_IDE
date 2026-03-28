@@ -164,7 +164,7 @@ Return a JSON object with this structure:
     {
       "step": 1,
       "action": "create_file|modify_file|delete_file|rename_file",
-      "file": "path/to/file.ts",
+      "file": "the ACTUAL file path from the project structure above",
       "description": "What this step does",
       "dependencies": [],
       "estimatedComplexity": "low|medium|high"
@@ -180,12 +180,13 @@ Return a JSON object with this structure:
 
 ## Rules
 1. Each step must have a clear, actionable description
-2. Files must use relative paths from project root
-3. Dependencies reference step numbers
-4. Confidence reflects your certainty (0.0-1.0)
-5. Keep plans focused - max 10 steps
-6. Prefer modify_file over create_file when possible
-7. Order steps by dependency (independent first)`;
+2. **CRITICAL**: For delete_file and modify_file actions, you MUST use the EXACT file path from the Project Structure above. NEVER use placeholder paths like "path/to/file". If the user says "delete the file" without specifying which file, look at the Project Structure and ask yourself: which single file was most recently created or modified?
+3. For create_file actions, use a descriptive relative path from project root
+4. Dependencies reference step numbers
+5. Confidence reflects your certainty (0.0-1.0)
+6. Keep plans focused - max 10 steps
+7. Prefer modify_file over create_file when possible
+8. Order steps by dependency (independent first)`;
   }
 
   /**

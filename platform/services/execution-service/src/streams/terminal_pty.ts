@@ -151,15 +151,21 @@ const DevelopmentShellAdapter = {
     }
 
     // Spawn an interactive shell in the sandbox
-    const proc: ChildProcess = spawn('bash', ['--norc', '--noprofile'], {
+    const isWindows = process.platform === 'win32';
+    const shell = isWindows ? 'cmd.exe' : 'bash';
+    const shellArgs = isWindows ? ['/q', '/k'] : ['--norc', '--noprofile'];
+    
+    const proc: ChildProcess = spawn(shell, shellArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: SANDBOX_DIR,
       env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin',
+        ...process.env,
+        PATH: isWindows ? process.env.PATH : '/usr/local/bin:/usr/bin:/bin',
         HOME: SANDBOX_DIR,
-        SHELL: '/bin/bash',
+        SHELL: isWindows ? 'cmd.exe' : '/bin/bash',
         TERM: 'xterm-256color',
-        PS1: '\\[\\033[36m\\]\\w\\[\\033[0m\\] $ ',
+        // PS1 is only for bash, cmd uses PROMPT
+        ...(isWindows ? { PROMPT: '$P$G ' } : { PS1: '\\[\\033[36m\\]\\w\\[\\033[0m\\] $ ' }),
       },
     });
 
@@ -243,13 +249,18 @@ export const TerminalPTY = {
     }
 
     // For development/testing with safety constraints:
-    const proc: ChildProcess = spawn('sh', ['-c', sanitizedCommand], {
+    const isWindows = process.platform === 'win32';
+    const shell = isWindows ? 'cmd.exe' : 'sh';
+    const shellArgs = isWindows ? ['/c', sanitizedCommand] : ['-c', sanitizedCommand];
+    
+    const proc: ChildProcess = spawn(shell, shellArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: SANDBOX_DIR,
       env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin',
+        ...process.env,
+        PATH: isWindows ? process.env.PATH : '/usr/local/bin:/usr/bin:/bin',
         HOME: SANDBOX_DIR,
-        SHELL: '/bin/sh',
+        SHELL: isWindows ? 'cmd.exe' : '/bin/sh',
       },
     });
 

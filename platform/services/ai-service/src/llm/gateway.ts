@@ -6,6 +6,8 @@ import { createOpenAIAdapter } from './adapters/openai.js';
 import { createAnthropicAdapter } from './adapters/anthropic.js';
 import { createGroqAdapter } from './adapters/groq.js';
 import { createMockAdapter } from './adapters/mock.js';
+import { createOpenAICompatAdapter } from './adapters/openai_compat.js';
+import { createGoogleAdapter } from './adapters/google.js';
 import { createLLMCache } from './cache.js';
 import { createQuotaManager } from './quota.js';
 import { createMetricsCollector } from './metrics.js';
@@ -38,6 +40,13 @@ export type LLMGatewayConfig = {
   openaiApiKey?: string;
   anthropicApiKey?: string;
   groqApiKey?: string;
+  deepseekApiKey?: string;
+  siliconflowApiKey?: string;
+  nvidiaApiKey?: string;
+  xiaomiApiKey?: string;
+  openrouterApiKey?: string;
+  huggingfaceApiKey?: string;
+  googleApiKey?: string;
 };
 
 export type LLMGateway = {
@@ -60,6 +69,44 @@ export function createLLMGateway(gatewayConfig: LLMGatewayConfig): LLMGateway {
     ? createGroqAdapter({ apiKey: gatewayConfig.groqApiKey })
     : null;
 
+  // OpenAI-compatible providers
+  const deepseekAdapter = gatewayConfig.deepseekApiKey
+    ? createOpenAICompatAdapter({ provider: 'deepseek', apiKey: gatewayConfig.deepseekApiKey, baseUrl: 'https://api.deepseek.com/v1' })
+    : null;
+
+  const siliconflowAdapter = gatewayConfig.siliconflowApiKey
+    ? createOpenAICompatAdapter({ provider: 'siliconflow', apiKey: gatewayConfig.siliconflowApiKey, baseUrl: 'https://api.siliconflow.cn/v1' })
+    : null;
+
+  const nvidiaAdapter = gatewayConfig.nvidiaApiKey
+    ? createOpenAICompatAdapter({ provider: 'nvidia', apiKey: gatewayConfig.nvidiaApiKey, baseUrl: 'https://integrate.api.nvidia.com/v1' })
+    : null;
+
+  const xiaomiAdapter = gatewayConfig.xiaomiApiKey
+    ? createOpenAICompatAdapter({ provider: 'xiaomi', apiKey: gatewayConfig.xiaomiApiKey, baseUrl: 'https://api.xiaomimimo.com/v1' })
+    : null;
+
+  const openrouterAdapter = gatewayConfig.openrouterApiKey
+    ? createOpenAICompatAdapter({
+        provider: 'openrouter',
+        apiKey: gatewayConfig.openrouterApiKey,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        extraHeaders: {
+          'HTTP-Referer': 'https://ai-native-ide.com',
+          'X-OpenRouter-Title': 'AI Native IDE',
+        },
+      })
+    : null;
+
+  const huggingfaceAdapter = gatewayConfig.huggingfaceApiKey
+    ? createOpenAICompatAdapter({ provider: 'huggingface', apiKey: gatewayConfig.huggingfaceApiKey, baseUrl: 'https://api-inference.huggingface.co/v1' })
+    : null;
+
+  // Google AI Studio (native SDK)
+  const googleAdapter = gatewayConfig.googleApiKey
+    ? createGoogleAdapter({ apiKey: gatewayConfig.googleApiKey })
+    : null;
+
   // Mock adapter always available for testing
   const mockAdapter = createMockAdapter({ latencyMs: 200 });
 
@@ -69,16 +116,18 @@ export function createLLMGateway(gatewayConfig: LLMGatewayConfig): LLMGateway {
 
   function getAdapter(provider: LLMProvider) {
     switch (provider) {
-      case 'openai':
-        return openaiAdapter;
-      case 'anthropic':
-        return anthropicAdapter;
-      case 'groq':
-        return groqAdapter;
-      case 'mock':
-        return mockAdapter;
-      default:
-        return null;
+      case 'openai': return openaiAdapter;
+      case 'anthropic': return anthropicAdapter;
+      case 'groq': return groqAdapter;
+      case 'deepseek': return deepseekAdapter;
+      case 'siliconflow': return siliconflowAdapter;
+      case 'nvidia': return nvidiaAdapter;
+      case 'xiaomi': return xiaomiAdapter;
+      case 'openrouter': return openrouterAdapter;
+      case 'huggingface': return huggingfaceAdapter;
+      case 'google': return googleAdapter;
+      case 'mock': return mockAdapter;
+      default: return null;
     }
   }
 
@@ -480,8 +529,70 @@ export async function getLLMGateway(): Promise<LLMGateway> {
       openaiApiKey: config.openaiApiKey,
       anthropicApiKey: config.anthropicApiKey,
       groqApiKey: config.groqApiKey,
+      deepseekApiKey: config.deepseekApiKey,
+      siliconflowApiKey: config.siliconflowApiKey,
+      nvidiaApiKey: config.nvidiaApiKey,
+      xiaomiApiKey: config.xiaomiApiKey,
+      openrouterApiKey: config.openrouterApiKey,
+      huggingfaceApiKey: config.huggingfaceApiKey,
+      googleApiKey: config.googleApiKey,
     });
+
+    // Load models from DB and populate router capabilities cache
+    try {
+      const { getConfigService } = await import('../config/config_service.js');
+      const { setAllModelCapabilities } = await import('./router.js');
+      const configService = getConfigService();
+      const models = await configService.getAvailableModelsAsync();
+      setAllModelCapabilities(models);
+      log.info('Loaded models from DB for routing', { count: models.length });
+    } catch (err) {
+      log.warn('Failed to load models from DB', {});
+    }
   }
 
   return gatewayInstance;
+}
+
+/**
+ * Refresh router capabilities cache from DB models.
+ * Call this after models are updated via admin panel.
+ */
+export async function refreshRouterCapabilities(): Promise<void> {
+  try {
+    const { getConfigService } = await import('../config/config_service.js');
+    const { setAllModelCapabilities } = await import('./router.js');
+    const configService = getConfigService();
+    const models = await configService.getAvailableModelsAsync();
+    setAllModelCapabilities(models);
+    log.info('Refreshed router capabilities from DB', { count: models.length });
+  } catch (err) {
+    log.warn('Failed to refresh router capabilities', {});
+  }
+}
+
+/**
+ * Register custom adapters from DB-stored model configs.
+ * Called after gateway creation to add any custom providers saved by admin.
+ */
+export async function registerCustomAdapters(gateway: LLMGateway & { registerAdapter?: Function }): Promise<void> {
+  try {
+    const { getConfigService } = await import('../config/config_service.js');
+    const configService = getConfigService();
+    const models = await configService.getAvailableModelsAsync();
+
+    for (const cm of models) {
+      if (cm.apiKey && cm.baseUrl && cm.provider !== 'google') {
+        const adapter = createOpenAICompatAdapter({
+          provider: cm.provider as any,
+          apiKey: cm.apiKey,
+          baseUrl: cm.baseUrl,
+          defaultModel: cm.model,
+        });
+        log.info('Registered custom adapter from DB', { provider: cm.provider, model: cm.model, baseUrl: cm.baseUrl });
+      }
+    }
+  } catch (err) {
+    log.warn('Failed to register custom adapters from DB', {});
+  }
 }

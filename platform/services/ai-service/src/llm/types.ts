@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export type LLMProvider = 'openai' | 'anthropic' | 'groq' | 'mock';
+export type LLMProvider = 'openai' | 'anthropic' | 'groq' | 'deepseek' | 'siliconflow' | 'nvidia' | 'xiaomi' | 'openrouter' | 'huggingface' | 'google' | 'mock';
 
 export type LLMTaskType =
   | 'plan'
@@ -17,6 +17,7 @@ export const LLMMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
   content: z.string().min(1),
   name: z.string().min(1).optional(),
+  toolCallId: z.string().optional(),
 });
 
 export type LLMMessage = z.infer<typeof LLMMessageSchema>;
@@ -34,6 +35,7 @@ export const LLMCompletionRequestSchema = z.object({
   modelHint: z.string().min(1).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().positive().optional(),
+  tools: z.array(z.any()).optional(), // LLMToolDefinition[] — validated at runtime
 
   userId: z.string().min(1).optional(),
   orgId: z.string().min(1).optional(),
@@ -43,9 +45,14 @@ export type LLMCompletionRequest = z.infer<typeof LLMCompletionRequestSchema>;
 
 export const LLMCompletionResponseSchema = z.object({
   requestId: z.string().min(1), // Echoed back for tracing
-  provider: z.enum(['openai', 'anthropic', 'groq', 'mock']),
+  provider: z.enum(['openai', 'anthropic', 'groq', 'deepseek', 'siliconflow', 'nvidia', 'xiaomi', 'openrouter', 'huggingface', 'google', 'mock']),
   model: z.string().min(1),
   outputText: z.string(),
+  toolCalls: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    arguments: z.record(z.any()),
+  })).optional(),
 
   tokensIn: z.number().int().nonnegative(),
   tokensOut: z.number().int().nonnegative(),
@@ -56,11 +63,36 @@ export const LLMCompletionResponseSchema = z.object({
 
 export type LLMCompletionResponse = z.infer<typeof LLMCompletionResponseSchema>;
 
+// Tool calling types for agent function-calling support
+export type LLMToolParameter = {
+  type: string;
+  description: string;
+  enum?: string[];
+  default?: unknown;
+};
+
+export type LLMToolDefinition = {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, LLMToolParameter>;
+    required?: string[];
+  };
+};
+
+export type LLMToolCall = {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
 // Internal adapter response type (without requestId - gateway adds it)
 export type AdapterResponse = {
   provider: LLMProvider;
   model: string;
   outputText: string;
+  toolCalls?: LLMToolCall[];
   tokensIn: number;
   tokensOut: number;
   latencyMs: number;

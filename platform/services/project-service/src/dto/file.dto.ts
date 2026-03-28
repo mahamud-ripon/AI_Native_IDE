@@ -7,7 +7,7 @@ export const CreateFileSchema = z.object({
 });
 
 export const UpdateFileSchema = z.object({
-  content: z.string().min(1, 'Content is required'),
+  content: z.string(),
 });
 
 export const MoveFileSchema = z.object({
