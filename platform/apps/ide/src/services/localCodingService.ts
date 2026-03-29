@@ -28,6 +28,7 @@
 import { groqClient } from './groqClient';
 import { editorContextService, EditorContext } from './editorContextService';
 import { useIDEStore, ideEventBus, detectLanguage } from '../stores/ideStore';
+import { syncAiFileContent } from '../core/runtime/aiFileSync';
 
 // ========================================
 // TYPES
@@ -297,9 +298,18 @@ export async function applyGeneratedPatches(
       }
 
       // Attempt to persist via filesystem API (upsert — works for new AND existing files)
+      await syncAiFileContent(projectId, patch.filePath, patch.content, {
+        event: patch.isNewFile ? 'created' : 'changed',
+        updateStore: false,
+      });
+
       try {
         const { fileSystemClient } = await import('../api/fileSystemClient');
         await fileSystemClient.applyAiPatches(projectId, [{ path: patch.filePath, content: patch.content }]);
+        await syncAiFileContent(projectId, patch.filePath, patch.content, {
+          event: patch.isNewFile ? 'created' : 'changed',
+          updateStore: false,
+        });
       } catch {
         // Filesystem API not available (offline mode) — content is in store
         console.warn(`[LocalCodingService] Could not persist ${patch.filePath} to filesystem (offline mode)`);

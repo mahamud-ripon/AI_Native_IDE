@@ -302,6 +302,101 @@ export async function getFileContent(
 }
 
 /**
+ * Get full project snapshot for WebContainer mounting
+ * GET /api/v1/projects/:id/snapshot
+ */
+export async function getProjectSnapshot(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const userId = (request as AuthenticatedRequest).user.sub;
+  const { id } = request.params as { id: string };
+  const traceId = request.id;
+
+  try {
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+    if (!isDevelopment) {
+      const hasAccess = await permissionService.checkAccess(userId, id, 'viewer');
+      if (!hasAccess) {
+        throw new ForbiddenError('Access denied to this project');
+      }
+    }
+
+    const branch = await prisma.projectBranch.findFirst({
+      where: { projectId: id, isDefault: true },
+    });
+
+    if (!branch) {
+      throw new NotFoundError('Default branch not found');
+    }
+
+    const entries = await prisma.projectFile.findMany({
+      where: {
+        projectId: id,
+        branchId: branch.id,
+        deletedAt: null,
+      },
+      orderBy: [{ isDirectory: 'desc' }, { path: 'asc' }],
+    });
+
+    const snapshotEntries = await Promise.all(
+      entries.map(async (file) => {
+        if (file.isDirectory) {
+          const directoryPath = `${file.path.replace(/\/+$/, '')}/`;
+          return [directoryPath, ''] as const;
+        }
+
+        let content = '';
+
+        if (file.inlineContent) {
+          content = file.inlineContent.toString('utf-8');
+        } else if (file.s3Key) {
+          try {
+            const result = await storageService.downloadFile(file.s3Key);
+            content = result.content;
+          } catch (s3Err: any) {
+            logger.warn('S3 download failed in getProjectSnapshot', {
+              projectId: id,
+              path: file.path,
+              s3Key: file.s3Key,
+              error: s3Err.message,
+              traceId,
+            });
+          }
+        }
+
+        return [file.path, content] as const;
+      })
+    );
+
+    const snapshot = Object.fromEntries(snapshotEntries);
+    const fileCount = entries.filter((entry) => !entry.isDirectory).length;
+    const directoryCount = entries.length - fileCount;
+
+    logger.debug('Project snapshot retrieved', {
+      projectId: id,
+      branchId: branch.id,
+      fileCount,
+      directoryCount,
+      traceId,
+    });
+
+    reply.send({
+      success: true,
+      data: {
+        files: snapshot,
+        fileCount,
+        directoryCount,
+      },
+      traceId,
+    });
+  } catch (error) {
+    logger.error('Failed to get project snapshot', { error, projectId: id, userId, traceId });
+    throw error;
+  }
+}
+
+/**
  * Create file
  * POST /api/v1/projects/:id/files
  */

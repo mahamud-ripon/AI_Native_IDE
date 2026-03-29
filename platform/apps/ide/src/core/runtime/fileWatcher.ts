@@ -3,6 +3,7 @@ import type { WebContainer } from '@webcontainer/api';
 export type FileWatchEvent = {
   type: 'create' | 'update' | 'delete';
   path: string;
+  entryType: 'file' | 'directory';
   timestamp: number;
 };
 
@@ -15,7 +16,7 @@ export type FileWatchCallback = (event: FileWatchEvent) => void;
 class FileWatcher {
   private container: WebContainer | null = null;
   private subscribers = new Set<FileWatchCallback>();
-  private knownFiles = new Map<string, string>(); // path -> content hash
+  private knownFiles = new Map<string, string>(); // path -> content hash or directory marker
   private watchInterval: ReturnType<typeof setInterval> | null = null;
   private watchPaths: string[] = [];
 
@@ -25,7 +26,7 @@ class FileWatcher {
   async init(container: WebContainer): Promise<void> {
     this.container = container;
     // Initial scan
-    await this.scanDirectory('/');
+    await this.scanDirectory('.');
     // Start polling for changes (WebContainer doesn't have native watch)
     this.startPolling();
   }
@@ -90,9 +91,10 @@ class FileWatcher {
       const entries = await this.container.fs.readdir(dir, { withFileTypes: true });
       
       for (const entry of entries) {
-        const fullPath = `${dir}/${entry.name}`.replace(/\/+/g, '/');
+        const fullPath = this.normalizePath(dir, entry.name);
         
         if (entry.isDirectory()) {
+          this.knownFiles.set(fullPath, '__dir__');
           await this.scanDirectory(fullPath);
         } else if (entry.isFile()) {
           // Hash content for change detection
@@ -124,7 +126,7 @@ class FileWatcher {
     const currentFiles = new Map<string, string>();
     
     // Scan watched paths
-    for (const watchPath of this.watchPaths.length > 0 ? this.watchPaths : ['/']) {
+    for (const watchPath of this.watchPaths.length > 0 ? this.watchPaths : ['.']) {
       await this.collectFiles(watchPath, currentFiles);
     }
 
@@ -134,17 +136,32 @@ class FileWatcher {
       
       if (oldHash === undefined) {
         // New file
-        this.notify({ type: 'create', path, timestamp: Date.now() });
+        this.notify({
+          type: 'create',
+          path,
+          entryType: hash === '__dir__' ? 'directory' : 'file',
+          timestamp: Date.now(),
+        });
       } else if (oldHash !== hash) {
         // Modified file
-        this.notify({ type: 'update', path, timestamp: Date.now() });
+        this.notify({
+          type: 'update',
+          path,
+          entryType: hash === '__dir__' ? 'directory' : 'file',
+          timestamp: Date.now(),
+        });
       }
     }
 
     // Detect deletions
-    for (const [path] of this.knownFiles) {
+    for (const [path, oldHash] of this.knownFiles) {
       if (!currentFiles.has(path)) {
-        this.notify({ type: 'delete', path, timestamp: Date.now() });
+        this.notify({
+          type: 'delete',
+          path,
+          entryType: oldHash === '__dir__' ? 'directory' : 'file',
+          timestamp: Date.now(),
+        });
       }
     }
 
@@ -162,9 +179,10 @@ class FileWatcher {
       const entries = await this.container.fs.readdir(dir, { withFileTypes: true });
       
       for (const entry of entries) {
-        const fullPath = `${dir}/${entry.name}`.replace(/\/+/g, '/');
+        const fullPath = this.normalizePath(dir, entry.name);
         
         if (entry.isDirectory()) {
+          map.set(fullPath, '__dir__');
           await this.collectFiles(fullPath, map);
         } else if (entry.isFile()) {
           // Hash content for change detection
@@ -189,6 +207,11 @@ class FileWatcher {
         console.error('[FileWatcher] Callback error:', err);
       }
     }
+  }
+
+  private normalizePath(dir: string, name: string): string {
+    const base = dir === '.' || dir === '/' ? '' : dir.replace(/^\//, '');
+    return base ? `${base}/${name}` : name;
   }
 }
 

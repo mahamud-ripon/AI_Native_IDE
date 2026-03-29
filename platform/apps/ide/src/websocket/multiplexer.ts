@@ -379,12 +379,26 @@ class WebSocketMultiplexer {
         this.ws.send(JSON.stringify({ type: 'ping' }));
       }
     }, this.heartbeatInterval);
+
+    // Send immediate ping when tab becomes visible (browser throttles timers in background)
+    this.visibilityHandler = () => {
+      if (document.visibilityState === 'visible' && this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
   }
+
+  private visibilityHandler: (() => void) | null = null;
 
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
     }
   }
 

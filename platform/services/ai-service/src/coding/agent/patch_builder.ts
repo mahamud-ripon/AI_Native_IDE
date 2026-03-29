@@ -163,9 +163,11 @@ export class PatchBuilder {
 3. Add helpful comments
 4. Keep code focused and minimal`;
 
-    const contextPrompt = edit.contextChunks.length > 0
-      ? `\n## Context\n${edit.contextChunks.map(c => c.content).join('\n\n')}`
-      : '';
+    const contextPrompt = this.buildContextPrompt(edit, {
+      heading: '## Context',
+      maxChunks: 2,
+      maxCharsPerChunk: 450,
+    });
 
     const userPrompt = `## Task
 Create a new file: ${edit.path}
@@ -183,7 +185,7 @@ Generate the complete file content.`;
 
     const response = await this.provider.complete(messages, {
       temperature: 0.2,
-      maxTokens: 2000,
+      maxTokens: 1600,
     });
 
     // Extract code from response
@@ -212,11 +214,11 @@ Generate the complete file content.`;
 ## Output
 Return the COMPLETE modified file, not just the changes.`;
 
-    const contextPrompt = edit.contextChunks.length > 0
-      ? `\n## Context Code\n${edit.contextChunks.map(c => 
-          `### ${c.path}\n\`\`\`\n${c.content}\n\`\`\``
-        ).join('\n\n')}`
-      : '';
+    const contextPrompt = this.buildContextPrompt(edit, {
+      heading: '## Context Code',
+      maxChunks: 3,
+      maxCharsPerChunk: 350,
+    });
 
     const userPrompt = `## File
 ${edit.path}
@@ -239,10 +241,35 @@ Return the complete modified file.`;
 
     const response = await this.provider.complete(messages, {
       temperature: 0.2,
-      maxTokens: Math.max(4000, originalContent.length * 2),
+      maxTokens: this.getModifyFileMaxTokens(originalContent),
     });
 
     return this.extractCode(response.content);
+  }
+
+  private buildContextPrompt(
+    edit: FileEditPlan,
+    options: {
+      heading: string;
+      maxChunks: number;
+      maxCharsPerChunk: number;
+    },
+  ): string {
+    if (edit.contextChunks.length === 0) {
+      return '';
+    }
+
+    const chunks = edit.contextChunks
+      .slice(0, options.maxChunks)
+      .map(chunk => `### ${chunk.path}\n\`\`\`\n${chunk.content.slice(0, options.maxCharsPerChunk)}\n\`\`\``)
+      .join('\n\n');
+
+    return `\n${options.heading}\n${chunks}`;
+  }
+
+  private getModifyFileMaxTokens(originalContent: string): number {
+    const estimatedOutputTokens = Math.ceil(originalContent.length / 4) + 400;
+    return Math.min(3200, Math.max(1200, estimatedOutputTokens));
   }
 
   /**

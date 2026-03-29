@@ -13,6 +13,7 @@ import {
   AgentResult,
   AgentMetrics,
   LLMMessage,
+  LLMProvider,
   LLMResponse,
   LLMToolCall,
   AgentProgressEvent,
@@ -46,6 +47,8 @@ export interface DirectAgentConfig {
   onProgress?: (event: AgentProgressEvent) => void;
   maxTurns?: number;
   abortSignal?: AbortSignal;
+  llmProvider?: LLMProvider;
+  toolRouter?: ToolRouter;
   workspaceContext?: {
     fileTree?: string[];
     activeFile?: string | null;
@@ -54,10 +57,16 @@ export interface DirectAgentConfig {
   };
 }
 
+export interface DirectAgentRunOptions {
+  fallbackModelConfig?: { provider: string; model: string };
+}
+
+type MutationIntent = 'create' | 'modify' | 'delete' | null;
+
 export class DirectAgent {
   private workspace: WorkspaceFS;
   private toolRouter: ToolRouter;
-  private llmProvider: GatewayLLMProvider;
+  private llmProvider: LLMProvider;
   private maxTurns: number;
   private onProgress?: (event: AgentProgressEvent) => void;
   private abortSignal?: AbortSignal;
@@ -69,9 +78,9 @@ export class DirectAgent {
     this.onProgress = config.onProgress;
     this.abortSignal = config.abortSignal;
     this.workspaceContext = config.workspaceContext;
-    this.toolRouter = getToolRouter();
+    this.toolRouter = config.toolRouter ?? getToolRouter();
     this.toolRouter.setWorkspace(config.workspace);
-    this.llmProvider = new GatewayLLMProvider();
+    this.llmProvider = config.llmProvider ?? new GatewayLLMProvider();
   }
 
   /**
@@ -79,7 +88,8 @@ export class DirectAgent {
    */
   async run(
     prompt: string,
-    modelConfig: { provider: string; model: string }
+    modelConfig: { provider: string; model: string },
+    runOptions: DirectAgentRunOptions = {}
   ): Promise<AgentResult> {
     const startTime = Date.now();
     const filesChanged: string[] = [];
@@ -87,6 +97,12 @@ export class DirectAgent {
     let totalTokensOut = 0;
     const scaffoldingRequest = this.isScaffoldingRequest(prompt);
     const maxTurns = scaffoldingRequest ? Math.min(this.maxTurns, 6) : this.maxTurns;
+    const mutationIntent = this.detectMutationIntent(prompt);
+    let activeModelConfig = modelConfig;
+    const fallbackModelConfig = runOptions.fallbackModelConfig
+      && runOptions.fallbackModelConfig.model !== modelConfig.model
+      ? runOptions.fallbackModelConfig
+      : undefined;
 
     try {
       this.throwIfAborted();
@@ -127,6 +143,9 @@ export class DirectAgent {
       const executedTools = new Map<string, ToolResult>();
       const executedMutations = new Set<string>();
       let informationalTurns = 0;
+      let successfulToolCalls = 0;
+      let forcedToolRetryIssued = false;
+      let fallbackModelActivated = false;
 
       // Tool-calling loop
       for (let turn = 0; turn < maxTurns; turn++) {
@@ -140,29 +159,36 @@ export class DirectAgent {
           tools,
           temperature: 0.1,
           maxTokens: 4096,
-          model: modelConfig.model,
+          model: activeModelConfig.model,
         });
         this.throwIfAborted();
 
         totalTokensIn += response.usage.promptTokens;
         totalTokensOut += response.usage.completionTokens;
 
-        console.log(`[DirectAgent] Turn ${turn + 1}: toolCalls=${response.toolCalls?.length ?? 0} content="${response.content?.slice(0, 100)}"`);
+        const parsedToolCalls = (!response.toolCalls || response.toolCalls.length === 0) && response.content
+          ? this.extractToolCallsFromContent(response.content)
+          : [];
+        const toolCalls = parsedToolCalls.length > 0 ? parsedToolCalls : (response.toolCalls ?? []);
 
-        if (response.toolCalls && response.toolCalls.length > 0) {
+        console.log(
+          `[DirectAgent] Turn ${turn + 1}: model=${activeModelConfig.model} toolCalls=${toolCalls.length} content="${response.content?.slice(0, 100)}"`
+        );
+
+        if (toolCalls.length > 0) {
           // LLM wants to use tools — add assistant message with tool calls
           messages.push({
             role: 'assistant',
             content: response.content,
-            toolCalls: response.toolCalls,
+            toolCalls,
           });
 
           let duplicateMutationsThisTurn = 0;
           let mutatingToolExecutedThisTurn = false;
-          const readOnlyToolCallsThisTurn = response.toolCalls.every(call => !this.isMutatingTool(call.name));
+          const readOnlyToolCallsThisTurn = toolCalls.every(call => !this.isMutatingTool(call.name));
 
           // Execute each tool call
-          for (const call of response.toolCalls) {
+          for (const call of toolCalls) {
             this.throwIfAborted();
             const filePath = call.arguments.path as string;
             const isMutatingTool = this.isMutatingTool(call.name);
@@ -211,6 +237,14 @@ export class DirectAgent {
             const toolResult = await this.executeToolCall(call);
             this.throwIfAborted();
 
+            // Handle command approval requests
+            if (call.name === 'execute_command' && toolResult.data) {
+              const data = toolResult.data as Record<string, unknown>;
+              if (data.status === 'pending_approval') {
+                this.emitProgress('command_approval_requested', 0.5, `Command needs approval: ${data.command || 'unknown'}`);
+              }
+            }
+
             // Track file changes
             if (call.name === 'delete_file' && toolResult.success) {
               if (filePath) {
@@ -230,6 +264,7 @@ export class DirectAgent {
 
             if (toolResult.success) {
               executedTools.set(fingerprint, toolResult);
+              successfulToolCalls++;
             }
 
             // Add tool result to messages
@@ -254,7 +289,7 @@ export class DirectAgent {
             };
           }
 
-          if (duplicateMutationsThisTurn === response.toolCalls.length && filesChanged.length > 0) {
+          if (duplicateMutationsThisTurn === toolCalls.length && filesChanged.length > 0) {
             console.log('[DirectAgent] All tool calls in this turn were duplicate mutations; stopping loop');
             this.emitProgress('completed', 1.0, 'Task completed');
             return {
@@ -324,15 +359,61 @@ export class DirectAgent {
             }
           }
 
+          if (mutationIntent && filesChanged.length === 0 && successfulToolCalls === 0 && turn < maxTurns - 1) {
+            if (!forcedToolRetryIssued) {
+              forcedToolRetryIssued = true;
+
+              if (response.content?.trim()) {
+                messages.push({
+                  role: 'assistant',
+                  content: response.content,
+                });
+              }
+
+              messages.push({
+                role: 'user',
+                content: this.buildForcedToolRetryPrompt(prompt, mutationIntent, fileList),
+              });
+              this.emitProgress('editing', progress, 'Retrying with explicit file-tool instructions...');
+              continue;
+            }
+
+            if (!fallbackModelActivated && fallbackModelConfig) {
+              fallbackModelActivated = true;
+              activeModelConfig = fallbackModelConfig;
+
+              if (response.content?.trim()) {
+                messages.push({
+                  role: 'assistant',
+                  content: response.content,
+                });
+              }
+
+              messages.push({
+                role: 'user',
+                content: this.buildFallbackModelRetryPrompt(prompt, mutationIntent, fileList),
+              });
+              this.emitProgress(
+                'editing',
+                progress,
+                `Retrying with fallback tool model (${fallbackModelConfig.provider}/${fallbackModelConfig.model})...`
+              );
+              continue;
+            }
+          }
+
           // LLM is truly done or can't proceed
           this.emitProgress('completed', 1.0, 'Done');
+          const summary = response.content || (filesChanged.length > 0
+            ? 'Task completed'
+            : 'No action taken — the AI model did not use any tools');
 
           return {
-            success: filesChanged.length > 0,
+            success: filesChanged.length > 0 || successfulToolCalls > 0 || Boolean(summary.trim()),
             plan: null as any,
             patches: [],
             filesChanged: [...new Set(filesChanged)],
-            summary: response.content || (filesChanged.length > 0 ? 'Task completed' : 'No action taken — the AI model did not use any tools'),
+            summary,
             metrics: this.buildMetrics(turn + 1, totalTokensIn, totalTokensOut, filesChanged, startTime),
           };
         }
@@ -342,13 +423,15 @@ export class DirectAgent {
       this.emitProgress('completed', 1.0, 'Max turns reached');
 
       return {
-        success: filesChanged.length > 0,
+        success: filesChanged.length > 0 || successfulToolCalls > 0,
         plan: null as any,
         patches: [],
         filesChanged: [...new Set(filesChanged)],
         summary: filesChanged.length > 0
-          ? `Completed: deleted ${[...new Set(filesChanged)].join(', ')}`
-          : `Task ran ${maxTurns} turns but no files were changed`,
+          ? `Completed: changed ${[...new Set(filesChanged)].join(', ')}`
+          : successfulToolCalls > 0
+            ? 'Task completed without mutating files'
+            : `Task ran ${maxTurns} turns but no files were changed`,
         metrics: this.buildMetrics(maxTurns, totalTokensIn, totalTokensOut, filesChanged, startTime),
       };
     } catch (error) {
@@ -476,6 +559,147 @@ export class DirectAgent {
       name: call.name,
       arguments: call.arguments,
     });
+  }
+
+  private detectMutationIntent(prompt: string): MutationIntent {
+    const normalized = prompt.toLowerCase();
+
+    if (/\b(delete|remove)\b/.test(normalized)) {
+      return 'delete';
+    }
+
+    if (/\b(edit|modify|update|change|fix|patch|replace|refactor)\b/.test(normalized)) {
+      return 'modify';
+    }
+
+    if (/\b(create|add|write|generate|make|scaffold|build)\b/.test(normalized)) {
+      return 'create';
+    }
+
+    return null;
+  }
+
+  private buildForcedToolRetryPrompt(
+    prompt: string,
+    mutationIntent: Exclude<MutationIntent, null>,
+    fileList: Array<{ path: string; isDirectory?: boolean }>
+  ): string {
+    const availableFiles = fileList
+      .filter(file => !file.isDirectory)
+      .slice(0, 40)
+      .map(file => file.path)
+      .join(', ');
+    const activeFileHint = this.workspaceContext?.activeFile
+      ? `Active file: ${this.workspaceContext.activeFile}.`
+      : '';
+
+    return [
+      `The user asked you to ${mutationIntent} files.`,
+      'Do not ask follow-up questions.',
+      'Use the available file tools in your very next response.',
+      mutationIntent === 'create'
+        ? 'If the file path is not explicit, infer the most conventional path from the project structure and create the file with write_file.'
+        : mutationIntent === 'modify'
+          ? 'Read the target file first if needed, then use edit_file or write_file to complete the change.'
+          : 'Choose the best matching existing file path from the project structure and delete it with delete_file.',
+      activeFileHint,
+      availableFiles ? `Available files: ${availableFiles}` : 'The workspace may currently be empty.',
+      `Original request: ${prompt}`,
+    ].filter(Boolean).join(' ');
+  }
+
+  private buildFallbackModelRetryPrompt(
+    prompt: string,
+    mutationIntent: Exclude<MutationIntent, null>,
+    fileList: Array<{ path: string; isDirectory?: boolean }>
+  ): string {
+    return `${this.buildForcedToolRetryPrompt(prompt, mutationIntent, fileList)} This is a fallback execution attempt. Respond with tool calls only if possible.`;
+  }
+
+  private extractToolCallsFromContent(content: string): LLMToolCall[] {
+    const toolCalls: LLMToolCall[] = [];
+    const toolCallRegex = /<tool_call>\s*<function=([\w-]+)>([\s\S]*?)<\/tool_call>|<function=([\w-]+)>([\s\S]*?)<\/function>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = toolCallRegex.exec(content)) !== null) {
+      const toolName = this.normalizeToolName(match[1] || match[3] || '');
+      const toolContent = match[2] || match[4] || '';
+      if (!toolName) {
+        continue;
+      }
+
+      const args: Record<string, unknown> = {};
+      let paramMatch: RegExpExecArray | null;
+
+      const paramRegexA = /<parameter>([\s\S]*?)<\/parameter>[\s\S]*?<value>([\s\S]*?)<\/value>/gi;
+      while ((paramMatch = paramRegexA.exec(toolContent)) !== null) {
+        args[this.normalizeToolParamName(paramMatch[1].trim())] = this.decodeToolParameterValue(paramMatch[2].trim());
+      }
+
+      const paramRegexB = /<parameter=([\w-]+)>([\s\S]*?)<\/parameter>/gi;
+      while ((paramMatch = paramRegexB.exec(toolContent)) !== null) {
+        args[this.normalizeToolParamName(paramMatch[1].trim())] = this.decodeToolParameterValue(paramMatch[2].trim());
+      }
+
+      if (Object.keys(args).length === 0 && toolContent.trim()) {
+        args.content = this.decodeToolParameterValue(toolContent.trim());
+      }
+
+      toolCalls.push({
+        id: `parsed-${toolCalls.length + 1}`,
+        name: toolName,
+        arguments: args,
+      });
+    }
+
+    return toolCalls;
+  }
+
+  private normalizeToolName(name: string): string {
+    const normalized = name.toLowerCase();
+    const aliases: Record<string, string> = {
+      write: 'write_file',
+      write_file: 'write_file',
+      read: 'read_file',
+      read_file: 'read_file',
+      delete: 'delete_file',
+      delete_file: 'delete_file',
+      remove: 'delete_file',
+      edit: 'edit_file',
+      edit_file: 'edit_file',
+      patch: 'apply_patch',
+      apply_patch: 'apply_patch',
+      search: 'search_code',
+      search_code: 'search_code',
+      list: 'list_files',
+      list_files: 'list_files',
+      context: 'get_context',
+      get_context: 'get_context',
+      exec: 'execute_command',
+      run: 'execute_command',
+      execute_command: 'execute_command',
+    };
+
+    return aliases[normalized] ?? normalized;
+  }
+
+  private normalizeToolParamName(name: string): string {
+    const normalized = name.toLowerCase();
+    if (normalized === 'file_path' || normalized === 'filepath') return 'path';
+    if (normalized === 'file_content' || normalized === 'filecontent') return 'content';
+    if (normalized === 'old_string') return 'oldString';
+    if (normalized === 'new_string') return 'newString';
+    if (normalized === 'replace_all') return 'replaceAll';
+    return name;
+  }
+
+  private decodeToolParameterValue(value: string): string {
+    return value
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;|&apos;|&#x27;/gi, '\'')
+      .replace(/&amp;/g, '&');
   }
 
   /**

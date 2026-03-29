@@ -129,15 +129,17 @@ class FileSystemClient {
     content: string,
     options?: { branch?: string; commitMessage?: string; encoding?: 'utf-8' | 'base64' }
   ): Promise<FileOperation> {
-    const response = await fetch(`${this.baseUrl}/api/v1/projects/${projectId}/files`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/projects/${projectId}/files/sync`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({
-        path: filePath,
-        content,
-        encoding: options?.encoding || 'utf-8',
-        branch: options?.branch,
-        commitMessage: options?.commitMessage,
+        files: [{
+          path: filePath,
+          content,
+          encoding: options?.encoding || 'utf-8',
+          branch: options?.branch,
+          commitMessage: options?.commitMessage,
+        }],
       }),
     });
 
@@ -145,7 +147,15 @@ class FileSystemClient {
       throw new Error(`Failed to write file: ${response.statusText}`);
     }
 
-    return response.json();
+    const body = await response.json();
+    const data = body.data || body;
+    const result = Array.isArray(data.results) ? data.results[0] : null;
+
+    return {
+      success: result?.success ?? true,
+      path: result?.path || filePath,
+      message: result?.error,
+    };
   }
 
   /**
@@ -158,7 +168,7 @@ class FileSystemClient {
         {
           method: 'POST',
           headers: this.getAuthHeaders(),
-          body: JSON.stringify({ path: filePath, content, type: 'file' }),
+          body: JSON.stringify({ path: filePath, content, isDirectory: false }),
         }
       );
 
@@ -166,10 +176,20 @@ class FileSystemClient {
         throw new Error(`Failed to create file: ${response.statusText}`);
       }
 
-      return response.json();
+      const body = await response.json();
+      const data = body.data || body;
+      return {
+        success: body.success ?? true,
+        path: data.path || filePath,
+        message: body.error || data.message,
+      };
     } catch (error) {
       console.error('[FileSystemClient] createFile error:', error);
-      return { success: true, path: filePath };
+      return {
+        success: false,
+        path: filePath,
+        message: error instanceof Error ? error.message : 'Failed to create file',
+      };
     }
   }
 
@@ -183,7 +203,7 @@ class FileSystemClient {
         {
           method: 'POST',
           headers: this.getAuthHeaders(),
-          body: JSON.stringify({ path: dirPath, type: 'directory' }),
+          body: JSON.stringify({ path: dirPath, isDirectory: true }),
         }
       );
 
@@ -191,10 +211,20 @@ class FileSystemClient {
         throw new Error(`Failed to create directory: ${response.statusText}`);
       }
 
-      return response.json();
+      const body = await response.json();
+      const data = body.data || body;
+      return {
+        success: body.success ?? true,
+        path: data.path || dirPath,
+        message: body.error || data.message,
+      };
     } catch (error) {
       console.error('[FileSystemClient] createDirectory error:', error);
-      return { success: true, path: dirPath };
+      return {
+        success: false,
+        path: dirPath,
+        message: error instanceof Error ? error.message : 'Failed to create directory',
+      };
     }
   }
 
@@ -215,10 +245,20 @@ class FileSystemClient {
         throw new Error(`Failed to delete file: ${response.statusText}`);
       }
 
-      return response.json();
+      const body = await response.json();
+      const data = body.data || body;
+      return {
+        success: body.success ?? true,
+        path: data.path || filePath,
+        message: body.error || data.message,
+      };
     } catch (error) {
       console.error('[FileSystemClient] deleteFile error:', error);
-      return { success: true, path: filePath };
+      return {
+        success: false,
+        path: filePath,
+        message: error instanceof Error ? error.message : 'Failed to delete file',
+      };
     }
   }
 
@@ -240,10 +280,20 @@ class FileSystemClient {
         throw new Error(`Failed to rename file: ${response.statusText}`);
       }
 
-      return response.json();
+      const body = await response.json();
+      const data = body.data || body;
+      return {
+        success: body.success ?? true,
+        path: data.path || newPath,
+        message: body.error || data.message,
+      };
     } catch (error) {
       console.error('[FileSystemClient] renameFile error:', error);
-      return { success: true, path: newPath };
+      return {
+        success: false,
+        path: newPath,
+        message: error instanceof Error ? error.message : 'Failed to rename file',
+      };
     }
   }
 
@@ -309,11 +359,16 @@ class FileSystemClient {
         { headers: this.getAuthHeaders() }
       );
 
+      if (response.status === 404) {
+        return {};
+      }
+
       if (!response.ok) {
         throw new Error(`Failed to get snapshot: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const body = await response.json();
+      const data = body.data || body;
       return data.files || {};
     } catch (error) {
       console.error('[FileSystemClient] getSnapshot error:', error);

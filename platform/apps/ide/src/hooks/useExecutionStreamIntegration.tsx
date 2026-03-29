@@ -35,6 +35,7 @@ import { useExecutionStore } from '../state/executionStore';
 import { editorManager } from '../core/editor/editorManager';
 import { aiDecorations } from '../core/editor/aiDecorations';
 import { ideEventBus } from '../stores/ideStore';
+import { syncAiFileContent } from '../core/runtime/aiFileSync';
 
 // ========================================
 // TYPES
@@ -135,6 +136,27 @@ export function useExecutionStreamIntegration(
     }
   }, []);
 
+  const syncPatchedFile = useCallback(async (
+    filePath: string,
+    content: string,
+    eventKind: 'created' | 'changed' = 'changed',
+  ) => {
+    try {
+      const Monaco = await import('monaco-editor');
+      const fileModel = editorModelManager.getOrCreate(Monaco, '', filePath);
+      if (fileModel?.model) {
+        fileModel.model.setValue(content);
+      }
+    } catch (e) {
+      console.warn('[Patch] Monaco update failed during AI sync:', e);
+    }
+
+    await syncAiFileContent(projectId, filePath, content, {
+      event: eventKind,
+      updateStore: true,
+    });
+  }, [projectId]);
+
   // Handle execution event
   const handleEvent = useCallback(
     (event: ExecutionEvent) => {
@@ -230,21 +252,27 @@ export function useExecutionStreamIntegration(
               createdAt: Date.now(),
             });
             
-            // Apply patch to Monaco Editor and WebContainer
-            applyPatchToEditor(patch.filePath, patch.newContent);
-            
-            // Notify IDE that file has changed (Reactive UI fix)
-            ideEventBus.emit('file:changed', { path: patch.filePath, content: patch.newContent });
+            // Apply patch to Monaco Editor, runtime, and explorer state
+            void syncPatchedFile(
+              patch.filePath,
+              patch.newContent,
+              patch.oldContent.length === 0 ? 'created' : 'changed',
+            );
           }
 
           // Handle bulk file sync from syncFiles endpoint (multi-file payload)
           if (event.payload.files && typeof event.payload.files === 'object') {
             const files = event.payload.files as Record<string, string>;
-            import('../core/runtime/webcontainerManager').then(({ writeBatch }) => {
-              writeBatch(files).then(results => {
-                const succeeded = results.filter(r => r.success).length;
-                console.log(`[Patch] Bulk WC sync: ${succeeded}/${results.length} files written`);
-              });
+            void Promise.allSettled(
+              Object.entries(files).map(([path, content]) =>
+                syncAiFileContent(projectId, path, content, {
+                  event: 'created',
+                  updateStore: true,
+                })
+              ),
+            ).then((results) => {
+              const succeeded = results.filter((result) => result.status === 'fulfilled').length;
+              console.log(`[Patch] Bulk AI sync: ${succeeded}/${results.length} files written`);
             });
           }
 
@@ -271,6 +299,7 @@ export function useExecutionStreamIntegration(
 
           // Emit to event bus (Reactive Sidebar fix)
           ideEventBus.emit('file:changed', { path: filePath });
+          ideEventBus.emit('tree:refresh', { path: filePath });
 
           onFileModified?.(event.taskId, filePath);
           break;
@@ -335,7 +364,7 @@ export function useExecutionStreamIntegration(
         }
       }
     },
-    [addEvent, setTask, updateTask, addPatchPreview, applyPatchToEditor, projectId, onTaskCreated, onTaskComplete, onTaskError, onPatchGenerated, onFileModified]
+    [addEvent, setTask, updateTask, addPatchPreview, projectId, onTaskCreated, onTaskComplete, onTaskError, onPatchGenerated, onFileModified, syncPatchedFile]
   );
 
   // Initialize client

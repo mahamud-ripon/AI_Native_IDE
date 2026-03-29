@@ -30,6 +30,8 @@ export class RemoteWorkspaceFS {
   private config: RemoteWorkspaceConfig;
   private diffEngine: DiffEngine | null = null;
   private rootPath: string;
+  private fileIdCache = new Map<string, string>();
+  private contentCache = new Map<string, string>();
 
   constructor(config: RemoteWorkspaceConfig) {
     this.config = config;
@@ -66,6 +68,9 @@ export class RemoteWorkspaceFS {
 
   async exists(filePath: string): Promise<boolean> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
+    if (this.fileIdCache.has(normalizedPath) || this.contentCache.has(normalizedPath)) {
+      return true;
+    }
     try {
       const res = await fetch(
         `${this.baseUrl}/files/content?path=${encodeURIComponent(normalizedPath)}`,
@@ -81,6 +86,10 @@ export class RemoteWorkspaceFS {
 
   async readFile(filePath: string, _options?: ReadFileOptions): Promise<string> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
+    const cachedContent = this.contentCache.get(normalizedPath);
+    if (cachedContent !== undefined) {
+      return cachedContent;
+    }
     
     // Safety check: if AI tries to read root or a folder, guide it to list_files
     if (normalizedPath === '' || normalizedPath === '.' || filePath.endsWith('/')) {
@@ -110,8 +119,16 @@ export class RemoteWorkspaceFS {
       throw new Error(`Failed to read file ${normalizedPath}: ${res.status}. If you are looking for a directory, use list_files.`);
     }
 
-    const data = await res.json() as { content?: string };
-    return data.content ?? '';
+    const body = await this.readJson(res);
+    const payload = this.unwrapPayload<{ id?: string; fileId?: string; content?: string }>(body);
+    const content = payload.content ?? '';
+
+    if (payload.fileId ?? payload.id) {
+      this.fileIdCache.set(normalizedPath, (payload.fileId ?? payload.id)!);
+    }
+    this.contentCache.set(normalizedPath, content);
+
+    return content;
   }
 
   async writeFile(filePath: string, content: string, _options?: WriteFileOptions): Promise<void> {
@@ -119,16 +136,9 @@ export class RemoteWorkspaceFS {
 
     // Prefer updating existing files first. This avoids noisy POST failures in
     // project-service when the agent intentionally overwrites files like package.json.
-    const existingFileId = await this.getFileId(normalizedPath);
+    const existingFileId = this.fileIdCache.get(normalizedPath) ?? await this.getFileId(normalizedPath);
     if (existingFileId) {
-      const updateRes = await fetch(`${this.baseUrl}/files/${existingFileId}`, {
-        method: 'PUT',
-        headers: this.headers,
-        body: JSON.stringify({ content }),
-      });
-      if (!updateRes.ok) {
-        throw new Error(`Failed to update file ${normalizedPath}: ${updateRes.status}`);
-      }
+      await this.updateRemoteFile(existingFileId, normalizedPath, content);
       return;
     }
 
@@ -146,20 +156,20 @@ export class RemoteWorkspaceFS {
     });
 
     if (createRes.ok) {
+      const body = await this.readJson(createRes);
+      const payload = this.unwrapPayload<{ id?: string; fileId?: string }>(body);
+      const fileId = payload.id ?? payload.fileId;
+      if (fileId) {
+        this.fileIdCache.set(normalizedPath, fileId);
+      }
+      this.contentCache.set(normalizedPath, content);
       return;
     }
 
     if (createRes.status === 409 || createRes.status === 400) {
-      const fileId = await this.getFileId(normalizedPath);
+      const fileId = this.fileIdCache.get(normalizedPath) ?? await this.getFileId(normalizedPath);
       if (fileId) {
-        const updateRes = await fetch(`${this.baseUrl}/files/${fileId}`, {
-          method: 'PUT',
-          headers: this.headers,
-          body: JSON.stringify({ content }),
-        });
-        if (!updateRes.ok) {
-          throw new Error(`Failed to update file ${normalizedPath}: ${updateRes.status}`);
-        }
+        await this.updateRemoteFile(fileId, normalizedPath, content);
         return;
       }
     }
@@ -186,10 +196,10 @@ export class RemoteWorkspaceFS {
     }));
   }
 
-  /**
+   /**
    * Delete a file from the remote project via project-service API.
    * Looks up the file by path, then sends DELETE /files/{fileId}.
-   * If the file is already gone, it returns success (idempotent).
+   * Throws if the file does not exist.
    */
   async deleteFile(filePath: string): Promise<void> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
@@ -198,15 +208,11 @@ export class RemoteWorkspaceFS {
     try {
       fileId = await this.getFileId(normalizedPath);
     } catch (e) {
-      // If we can't look it up, treat as already deleted
-      console.warn(`[RemoteWorkspaceFS] Could not lookup fileId for ${normalizedPath}, assuming deleted:`, e);
-      return;
+      throw new Error(`Cannot delete file "${normalizedPath}": file lookup failed — ${e instanceof Error ? e.message : String(e)}`);
     }
 
     if (!fileId) {
-      // File already gone — success (idempotent)
-      console.log(`[RemoteWorkspaceFS] File ${normalizedPath} not found during delete, returning success.`);
-      return;
+      throw new Error(`Cannot delete file "${normalizedPath}": file does not exist in the project.`);
     }
 
     const res = await fetch(`${this.baseUrl}/files/${fileId}`, {
@@ -218,6 +224,9 @@ export class RemoteWorkspaceFS {
       const body = await res.text().catch(() => '');
       throw new Error(`Failed to delete file ${normalizedPath}: ${res.status} ${body}`);
     }
+
+    this.fileIdCache.delete(normalizedPath);
+    this.contentCache.delete(normalizedPath);
   }
 
   async applyPatch(patchContent: string): Promise<PatchResult> {
@@ -318,19 +327,62 @@ export class RemoteWorkspaceFS {
 
   private async getFileId(filePath: string): Promise<string | null> {
     const normalizedPath = filePath.replace(/^\.?\//, '');
+    const cachedFileId = this.fileIdCache.get(normalizedPath);
+    if (cachedFileId) {
+      return cachedFileId;
+    }
+
     try {
       const res = await fetch(
         `${this.baseUrl}/files/content?path=${encodeURIComponent(normalizedPath)}`,
         { headers: this.headers }
       );
       if (res.ok) {
-        const body = await res.json() as { data?: { fileId?: string } };
-        return body.data?.fileId ?? null;
+        const body = await this.readJson(res);
+        const payload = this.unwrapPayload<{ id?: string; fileId?: string; content?: string }>(body);
+        const fileId = payload.fileId ?? payload.id ?? null;
+        if (fileId) {
+          this.fileIdCache.set(normalizedPath, fileId);
+        }
+        if (payload.content !== undefined) {
+          this.contentCache.set(normalizedPath, payload.content);
+        }
+        return fileId;
       }
       return null;
     } catch {
       return null;
     }
+  }
+
+  private async updateRemoteFile(fileId: string, normalizedPath: string, content: string): Promise<void> {
+    const updateRes = await fetch(`${this.baseUrl}/files/${fileId}`, {
+      method: 'PUT',
+      headers: this.headers,
+      body: JSON.stringify({ content }),
+    });
+
+    if (!updateRes.ok) {
+      throw new Error(`Failed to update file ${normalizedPath}: ${updateRes.status}`);
+    }
+
+    this.fileIdCache.set(normalizedPath, fileId);
+    this.contentCache.set(normalizedPath, content);
+  }
+
+  private async readJson(response: Response): Promise<unknown> {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  private unwrapPayload<T>(body: unknown): T {
+    if (body && typeof body === 'object' && 'data' in body) {
+      return (body as { data: T }).data;
+    }
+    return (body ?? {}) as T;
   }
 
   private async ensureDirectory(filePath: string): Promise<void> {

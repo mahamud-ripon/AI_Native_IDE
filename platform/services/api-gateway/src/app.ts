@@ -78,6 +78,31 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   // 9. Register Proxy Router (routes to downstream services)
   await proxyRouter(app);
 
+  // 10. Custom error handler for proxy failures
+  app.setErrorHandler((error: any, request, reply) => {
+    const isConnectionRefused =
+      error.code === 'ECONNREFUSED' ||
+      error.code === 'FST_REPLY_FROM_INTERNAL_SERVER_ERROR' ||
+      error.message?.includes('ECONNREFUSED');
+
+    if (isConnectionRefused) {
+      request.log.warn({ err: error, url: request.url }, 'Downstream service unavailable');
+      return reply.status(503).send({
+        success: false,
+        error: 'Service temporarily unavailable',
+        message: 'The downstream service is starting up. Please retry.',
+        code: 'SERVICE_UNAVAILABLE',
+      });
+    }
+
+    request.log.error({ err: error, url: request.url }, 'Unhandled proxy error');
+    return reply.status(500).send({
+      success: false,
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+    });
+  });
+
   // Response hooks for logging and idempotency resolution
   app.addHook('onSend', async (request, reply, payload) => {
     // Log request completion

@@ -445,7 +445,10 @@ export class ToolRouter {
         if (!this.workspace) {
           throw new Error('Workspace not configured');
         }
-        await this.workspace.writeFile(args.path as string, args.content as string);
+        await this.workspace.writeFile(args.path as string, args.content as string, {
+          createDirectories: true,
+          overwrite: true,
+        });
         return { success: true, data: { path: args.path } };
       },
     });
@@ -629,26 +632,37 @@ export class ToolRouter {
         },
       ],
       execute: async (args) => {
-        // Only allow safe commands
         const command = args.command as string;
-        const safeCommands = ['npm', 'pnpm', 'yarn', 'node', 'npx', 'git'];
+        const cwd = args.cwd as string | undefined;
 
-        const firstWord = command.split(' ')[0];
-        if (!safeCommands.includes(firstWord)) {
-          throw new Error(`Unsafe command: ${firstWord}. Only ${safeCommands.join(', ')} commands are allowed.`);
+        // Import command classifier
+        const { classifyCommand } = await import('../execution/command_executor.js');
+        const safety = classifyCommand(command);
+
+        if (safety === 'blocked') {
+          throw new Error(`Blocked command: ${command}. Contains dangerous patterns.`);
         }
 
-        // Execute via workspace if available
-        if (this.workspace) {
-          // For now, return a placeholder
-          // In production, this would use a proper shell execution with sandboxing
-          return {
-            success: false,
-            data: { command, status: 'blocked', message: 'Command execution requires user approval' }
-          };
-        }
+        // ALL commands are executed in the IDE's WebContainer, not on the server
+        // Store the command for the IDE to pick up and execute
+        const commandId = `cmd-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
-        return { success: false, data: { command, status: 'no-workspace' } };
+        const { createPendingApproval } = await import('../execution/pending_approvals.js');
+        createPendingApproval(command, cwd || '.', commandId, safety);
+
+        // Return immediately - the IDE will execute the command and send back the result
+        return {
+          success: false,
+          data: {
+            command,
+            commandId,
+            status: safety === 'safe' ? 'pending_execution' : 'pending_approval',
+            classification: safety,
+            message: safety === 'safe'
+              ? `Command will be executed in your environment.`
+              : `Command "${command}" requires approval before execution.`,
+          },
+        };
       },
     });
   }

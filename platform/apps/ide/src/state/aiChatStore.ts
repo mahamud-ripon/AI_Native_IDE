@@ -25,6 +25,7 @@ import { ideEventBus, useIDEStore, FileNode } from '../stores/ideStore';
 import { classifyIntent, getServiceForIntent, getIntentLabel, Intent, IntentResult } from '../services/intentClassifier';
 import { logger } from '../lib/logger';
 import { apiConfig } from '../lib/apiConfig';
+import { syncAiFilesFromBackend } from '../core/runtime/aiFileSync';
 
 // ========================================
 // HELPERS
@@ -606,9 +607,8 @@ async function sendWithCodeGeneration(
         },
       });
 
-      // Emit file:created events for each applied file so the file tree refreshes
-      result.applied.forEach(filePath => {
-        ideEventBus.emit('file:created', { path: filePath });
+      void syncAiFilesFromBackend(projectId, result.applied, {
+        event: 'created',
       });
     } else if (result.patches.length > 0 && result.failed.length > 0) {
       // Partial failure
@@ -920,9 +920,9 @@ async function sendToAIAgents(
               
               // Handle file creation/modification tracking from agent output
               if (event.data?.files_modified && Array.isArray(event.data.files_modified)) {
-                event.data.files_modified.forEach((filePath: string) => {
-                   ideEventBus.emit('file:created', { path: filePath });
-                   useIDEStore.getState().openTab(filePath, '');
+                void syncAiFilesFromBackend(projectId, event.data.files_modified as string[], {
+                  event: 'created',
+                  openTabs: true,
                 });
               }
               break;
@@ -944,9 +944,9 @@ async function sendToAIAgents(
 
               // Final check for file modifications
               if (event.data?.files_modified && Array.isArray(event.data.files_modified)) {
-                event.data.files_modified.forEach((filePath: string) => {
-                   ideEventBus.emit('file:created', { path: filePath });
-                   useIDEStore.getState().openTab(filePath, '');
+                void syncAiFilesFromBackend(projectId, event.data.files_modified as string[], {
+                  event: 'created',
+                  openTabs: true,
                 });
               }
               break;

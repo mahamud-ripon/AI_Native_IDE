@@ -23,6 +23,7 @@ export async function routes(fastify: FastifyInstance): Promise<void> {
 
   // File routes (mixed auth: JWT for users, internal API key for services)
   fastify.get('/api/v1/projects/:id/tree', { preHandler: mixedAuthMiddleware }, fileController.getFileTree);
+  fastify.get('/api/v1/projects/:id/snapshot', { preHandler: mixedAuthMiddleware }, fileController.getProjectSnapshot);
   fastify.get('/api/v1/projects/:id/files/:fileId', { preHandler: mixedAuthMiddleware }, fileController.getFile);
   fastify.get('/api/v1/projects/:id/files/content', { preHandler: mixedAuthMiddleware }, fileController.getFileContent);
   fastify.post('/api/v1/projects/:id/files', { preHandler: mixedAuthMiddleware }, fileController.createFile);

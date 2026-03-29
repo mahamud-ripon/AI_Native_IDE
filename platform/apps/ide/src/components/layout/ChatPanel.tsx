@@ -25,6 +25,7 @@ import {
 import { useAIChatStore } from '@/state/aiChatStore';
 import { useIDEStore, ideEventBus } from '@/stores/ideStore';
 import { aiCodingController } from '@/core/ai/aiCodingController';
+import { syncAiFileContent } from '@/core/runtime/aiFileSync';
 
 // Design tokens
 const colors = {
@@ -145,7 +146,7 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleApplyCode = (code: string, path?: string) => {
+  const handleApplyCode = async (code: string, path?: string) => {
     const targetPath = path || useIDEStore.getState().activeTabPath;
     if (targetPath) {
       useIDEStore.getState().setFileContent(targetPath, code);
@@ -154,9 +155,17 @@ export function ChatPanel({ projectId, projectName, workspaceId }: ChatPanelProp
       ideEventBus.emit('file:changed', { path: targetPath, content: code });
     } else {
       const newPath = `src/generated-${Date.now()}.ts`;
-      useIDEStore.getState().setFileContent(newPath, code);
-      useIDEStore.getState().openTab(newPath, code);
-      ideEventBus.emit('file:created', { path: newPath });
+      try {
+        const { fileSystemClient } = await import('@/api/fileSystemClient');
+        await fileSystemClient.applyAiPatches(projectId, [{ path: newPath, content: code }]);
+        await syncAiFileContent(projectId, newPath, code, { event: 'created', updateStore: true });
+        useIDEStore.getState().openTab(newPath, code);
+      } catch (error) {
+        console.warn('[ChatPanel] Failed to persist generated file:', error);
+        useIDEStore.getState().setFileContent(newPath, code);
+        useIDEStore.getState().openTab(newPath, code);
+        ideEventBus.emit('file:created', { path: newPath });
+      }
     }
   };
 

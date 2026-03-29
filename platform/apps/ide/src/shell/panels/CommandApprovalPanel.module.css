@@ -1,0 +1,165 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.approvalCard {
+  position: relative;
+  background: var(--vscode-editor-background, #1e1e1e);
+  border: 1px solid var(--vscode-widget-border, #454545);
+  border-radius: 8px;
+  padding: 12px;
+  transition: border-color 0.2s;
+}
+
+.approvalCard:hover {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon {
+  font-size: 16px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.riskBadge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.risk_safe {
+  background: rgba(70, 160, 70, 0.2);
+  color: #4caf50;
+}
+
+.risk_moderate {
+  background: rgba(255, 165, 0, 0.2);
+  color: #ff9800;
+}
+
+.risk_dangerous {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+}
+
+.commandBox {
+  background: var(--vscode-terminal-background, #0d1117);
+  border: 1px solid var(--vscode-panel-border, #30363d);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+}
+
+.command {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  color: var(--vscode-terminal-foreground, #c9d1d9);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.agentName {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #8b949e);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.approveBtn,
+.denyBtn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.approveBtn {
+  background: var(--vscode-button-background, #238636);
+  color: var(--vscode-button-foreground, #ffffff);
+}
+
+.approveBtn:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, #2ea043);
+}
+
+.approveBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.denyBtn {
+  background: transparent;
+  color: var(--vscode-foreground, #cccccc);
+  border: 1px solid var(--vscode-widget-border, #454545);
+}
+
+.denyBtn:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.denyBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dismissBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-icon-foreground, #8b949e);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.dismissBtn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  color: var(--vscode-foreground, #cccccc);
+}

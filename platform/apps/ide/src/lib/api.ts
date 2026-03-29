@@ -158,25 +158,60 @@ async function request<T>(
     const data = await response.json() as ApiResponse<T>;
 
     if (!response.ok) {
-      // Handle 401 - token expired
+      // Handle 401 - attempt refresh before giving up
       if (response.status === 401 && !skipAuth) {
-        clearTokens();
-        
-        // Show logout popup for token expiry
         const errorCode = data.error?.code;
         const errorMessage = data.error?.message || '';
-        const isTokenExpired = errorCode === 'TOKEN_EXPIRED' || 
+        const isTokenExpired = errorCode === 'TOKEN_EXPIRED' ||
                                errorMessage.includes('expired') ||
                                errorMessage.includes('Token expired');
-        
+
         if (isTokenExpired) {
-          toast.error('Your session has expired. Please log in again.');
-        } else {
-          toast.error('Authentication failed. Please log in again.');
+          // Try to refresh the token and retry the request once
+          try {
+            const newToken = await refreshAccessToken();
+            // Retry the original request with the new token
+            const retryHeaders = {
+              ...requestHeaders,
+              Authorization: `Bearer ${newToken}`,
+            } as Record<string, string>;
+
+            const retryResponse = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
+              ...restConfig,
+              headers: retryHeaders,
+              credentials: 'include',
+            });
+
+            const retryData = await retryResponse.json() as ApiResponse<T>;
+
+            if (!retryResponse.ok) {
+              // Refresh succeeded but retry still failed — force logout
+              clearTokens();
+              toast.error('Session expired. Please log in again.');
+              window.location.href = '/login';
+              throw new ApiRequestError(
+                retryData.error?.message || 'Session expired',
+                'TOKEN_EXPIRED',
+                401
+              );
+            }
+
+            return retryData;
+          } catch (refreshError) {
+            // Refresh itself failed — force logout
+            if (refreshError instanceof ApiRequestError) throw refreshError;
+            clearTokens();
+            toast.error('Session expired. Please log in again.');
+            window.location.href = '/login';
+            throw new ApiRequestError('Session expired', 'TOKEN_EXPIRED', 401);
+          }
         }
-        
+
+        // Non-expiry 401 (invalid token, missing claims, etc.) — force logout
+        clearTokens();
+        toast.error('Authentication failed. Please log in again.');
         window.location.href = '/login';
-        throw new ApiRequestError('Session expired', 'TOKEN_EXPIRED', 401);
+        throw new ApiRequestError('Authentication failed', 'AUTH_FAILED', 401);
       }
 
       throw new ApiRequestError(

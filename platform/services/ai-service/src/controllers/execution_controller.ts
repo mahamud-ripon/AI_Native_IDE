@@ -16,6 +16,7 @@ import {
   CreateExecutionTaskRequest,
   ExecutionTaskOptions,
 } from '../execution/index.js';
+import { normalizeWorkflowTimeout } from '../execution/execution_timeout_policy.js';
 import { config } from '../config.js';
 import { getLLMGateway } from '../llm/gateway.js';
 import { LLMStreamChunkEvent } from '../llm/types.js';
@@ -560,6 +561,7 @@ async function createTask(
     ...options,
     mode: inferredMode ?? options?.mode,
     modelHint,
+    timeoutMs: normalizeWorkflowTimeout(options?.timeoutMs),
   };
 
   const taskService = getExecutionTaskService();

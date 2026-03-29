@@ -142,6 +142,9 @@ export class TaskOrchestrator {
       });
       modeUsed = decision.mode;
       modeDecision = decision;
+      const directModeFallbackModelConfig = decision.mode === 'direct'
+        ? { ...decision.modelConfig }
+        : undefined;
 
       // Override model config with user's selection if provided
       if (request.modelHint) {
@@ -153,9 +156,13 @@ export class TaskOrchestrator {
         }
       }
 
+      const selectedModelLabel = decision.modelConfig.model.startsWith(`${decision.modelConfig.provider}/`)
+        ? decision.modelConfig.model
+        : `${decision.modelConfig.provider}/${decision.modelConfig.model}`;
+
       console.log(
         `[TaskOrchestrator] Mode decision: ${decision.mode} (${decision.reason}) complexity=${decision.complexity} ` +
-        `model: ${decision.modelConfig.provider}/${decision.modelConfig.model} maxTurns: ${decision.maxTurns} ` +
+        `model: ${selectedModelLabel} maxTurns: ${decision.maxTurns} ` +
         `tools=${decision.selectedTools.join(',')}`
       );
       this.emitProgress(request.id, 'running', 0.12,
@@ -164,7 +171,7 @@ export class TaskOrchestrator {
         {
           complexity: decision.complexity,
           selectedTools: decision.selectedTools,
-          model: `${decision.modelConfig.provider}/${decision.modelConfig.model}`,
+          model: selectedModelLabel,
         },
         decision,
       );
@@ -280,7 +287,9 @@ export class TaskOrchestrator {
         const timeoutGuard = this.createTimeoutGuard(options.timeoutMs, abortController);
         try {
           agentResult = await Promise.race([
-            directAgent.run(request.prompt, decision.modelConfig),
+            directAgent.run(request.prompt, decision.modelConfig, {
+              fallbackModelConfig: directModeFallbackModelConfig,
+            }),
             timeoutGuard.promise,
           ]);
         } finally {

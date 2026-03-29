@@ -30,6 +30,7 @@ import { localCodingService, isCodingIntent } from '../../services/localCodingSe
 import { aiOrchestrator, OrchestratorState } from '../../services/aiOrchestrator';
 import { aiServiceClient, WorkflowRun, WorkflowEvent } from '../../api/aiServiceClient';
 import { useIDEStore, ideEventBus } from '../../stores/ideStore';
+import { CommandApprovalPanel } from './CommandApprovalPanel';
 import { logger } from '../../lib/logger';
 import styles from './AIChatPanel.module.css';
 
@@ -101,14 +102,28 @@ export function AIChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Save chat history to localStorage whenever messages change
-  useEffect(() => {
+  // Immediate persistence helper - saves to localStorage and returns saved messages
+  const persistMessages = useCallback((newMessages: ChatMessage[]) => {
     try {
-      localStorage.setItem(`chat_history_${projectId || 'default'}`, JSON.stringify(messages));
+      localStorage.setItem(`chat_history_${projectId || 'default'}`, JSON.stringify(newMessages));
     } catch (e) {
       console.warn('Failed to save chat history:', e);
     }
-  }, [messages, projectId]);
+  }, [projectId]);
+
+  // Update messages AND persist immediately - use for all important updates
+  const updateAndPersist = useCallback((updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+    setMessages(prev => {
+      const newMessages = updater(prev);
+      persistMessages(newMessages);
+      return newMessages;
+    });
+  }, [persistMessages]);
+
+  // Save chat history to localStorage whenever messages change (backup)
+  useEffect(() => {
+    persistMessages(messages);
+  }, [messages, persistMessages]);
 
   // Add system message on mount (only if no history)
   useEffect(() => {
@@ -123,6 +138,17 @@ export function AIChatPanel({
       setMessages([systemMessage]);
     }
   }, []);
+
+  // Ensure messages are saved before page unload/refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Force immediate persistence
+      persistMessages(messagesRef.current);
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [persistMessages]);
 
   // Handle execution status changes
   useEffect(() => {
@@ -142,17 +168,17 @@ export function AIChatPanel({
           taskId: activeTask.id,
           status: 'streaming',
         };
-        setMessages(prev => [...prev, assistantMessage]);
+        updateAndPersist(prev => [...prev, assistantMessage]);
       } else {
         // Update existing message
-        setMessages(prev => prev.map((m, i) =>
+        updateAndPersist(prev => prev.map((m, i) =>
           i === existingIndex
             ? { ...m, content: formatTaskProgress(activeTask), status: 'streaming' }
             : m
         ));
       }
     } else if (executionStatus.status === 'completed') {
-      setMessages(prev => prev.map((m) =>
+      updateAndPersist(prev => prev.map((m) =>
         m.taskId === activeTask.id
           ? {
             ...m,
@@ -169,7 +195,7 @@ export function AIChatPanel({
           : m
       ));
     } else if (executionStatus.status === 'failed') {
-      setMessages(prev => prev.map((m) =>
+      updateAndPersist(prev => prev.map((m) =>
         m.taskId === activeTask.id
           ? {
             ...m,
@@ -183,8 +209,9 @@ export function AIChatPanel({
   }, [executionStatus, activeTask?.id]);
 
   // Keep a stable ref to messages to avoid re-creating the subscription on every update
+  // Update synchronously to avoid race conditions with beforeunload
   const messagesRef = useRef(messages);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  messagesRef.current = messages; // Sync update - no useEffect needed
 
   // Subscribe to AI Coding Controller state changes — registered ONCE (Bug 8 fix)
   useEffect(() => {
@@ -214,7 +241,7 @@ export function AIChatPanel({
       }
 
       if (existingIndex !== -1) {
-        setMessages(prev => prev.map((m, i) =>
+        updateAndPersist(prev => prev.map((m, i) =>
           i === existingIndex
             ? { ...m, content: stateMessages[state] ?? m.content }
             : m
@@ -237,7 +264,7 @@ export function AIChatPanel({
         timestamp: Date.now(),
         status: 'streaming',
       };
-      setMessages(prev => [...prev, progressMessage]);
+      updateAndPersist(prev => [...prev, progressMessage]);
 
       try {
         // Connect WebSocket for real-time updates
@@ -282,7 +309,7 @@ export function AIChatPanel({
             case 'step_started': {
               const emoji = agentEmojis[event.agentName || ''] || '🔄';
               const agentName = (event.agentName || 'Agent').replace('_agent', '').toUpperCase();
-              setMessages(prev => prev.map(m =>
+              updateAndPersist(prev => prev.map(m =>
                 m.id === progressMessage.id
                   ? { ...m, content: `${emoji} **${agentName} Agent working...**\n\nStep ${event.stepIndex}: ${event.stepName}` }
                   : m
@@ -290,9 +317,9 @@ export function AIChatPanel({
               break;
             }
             case 'step_failed':
-              setMessages(prev => prev.map(m =>
+              updateAndPersist(prev => prev.map(m =>
                 m.id === progressMessage.id
-                  ? { ...m, content: `❌ **Step ${event.stepIndex} failed**\n\n${event.stepName}: ${event.data?.error || 'Unknown error'}` }
+                  ? { ...m, content: `❌ **Step ${event.stepIndex} failed**\n\n${event.stepName}: ${event.data?.error || 'Unknown error'}`, status: 'error' as const }
                   : m
               ));
               break;
@@ -316,7 +343,7 @@ export function AIChatPanel({
                 break; // don't close the stream — more events may follow
               }
 
-              setMessages(prev => prev.map(m =>
+              updateAndPersist(prev => prev.map(m =>
                 m.id === progressMessage.id
                   ? {
                     ...m,
@@ -345,7 +372,7 @@ export function AIChatPanel({
                 }
                 break;
               }
-              setMessages(prev => prev.map(m =>
+              updateAndPersist(prev => prev.map(m =>
                 m.id === progressMessage.id
                   ? { ...m, content: `✅ **Step ${event.stepIndex} completed**\n\n${event.stepName}` }
                   : m
@@ -354,7 +381,7 @@ export function AIChatPanel({
             }
 
             case 'workflow_failed':
-              setMessages(prev => prev.map(m =>
+              updateAndPersist(prev => prev.map(m =>
                 m.id === progressMessage.id
                   ? {
                     ...m,
@@ -391,7 +418,7 @@ export function AIChatPanel({
           const steps = finalRun.steps.filter(s => s.status === 'completed');
           const totalTokens = finalRun.totalTokensIn + finalRun.totalTokensOut;
 
-          setMessages(prev => prev.map(m =>
+          updateAndPersist(prev => prev.map(m =>
             m.id === progressMessage.id
               ? {
                 ...m,
@@ -412,7 +439,7 @@ export function AIChatPanel({
               : m
           ));
         } else if (finalRun.status === 'failed') {
-          setMessages(prev => prev.map(m =>
+          updateAndPersist(prev => prev.map(m =>
             m.id === progressMessage.id
               ? {
                 ...m,
@@ -428,7 +455,7 @@ export function AIChatPanel({
         console.error('[AIChatPanel] Backend workflow failed, falling back to local orchestrator:', error);
 
         // Fall back to local multi-agent orchestrator (Bug 5 fix)
-        setMessages(prev => prev.map(m =>
+        updateAndPersist(prev => prev.map(m =>
           m.id === progressMessage?.id
             ? { ...m, content: '🔄 **Backend unavailable. Running local AI agents...**\n\nSpinning up local agent team...' }
             : m
@@ -467,7 +494,7 @@ export function AIChatPanel({
             ? `\n⚠️ **${inMemoryCount} file${inMemoryCount !== 1 ? 's' : ''} are open in editor tabs only** — backend is offline, they won't survive a page refresh.`
             : '';
 
-          setMessages(prev => prev.map(m =>
+          updateAndPersist(prev => prev.map(m =>
             m.id === progressMessage?.id
               ? {
                 ...m,
@@ -478,7 +505,7 @@ export function AIChatPanel({
               : m
           ));
         } catch (orchError) {
-          setMessages(prev => prev.map(m =>
+          updateAndPersist(prev => prev.map(m =>
             m.id === progressMessage?.id
               ? {
                 ...m,
@@ -495,7 +522,7 @@ export function AIChatPanel({
 
     // Non-coding intent: use Groq for a conversational streaming response (Bug 3 fix)
     if (!groqClient.isConfigured()) {
-      setMessages(prev => [...prev, {
+      updateAndPersist(prev => [...prev, {
         id: `assistant-${Date.now()}`,
         role: 'assistant' as const,
         content: 'I need a Groq API key to answer general questions. Click ⚙️ to configure it.',
@@ -513,9 +540,10 @@ export function AIChatPanel({
       timestamp: Date.now(),
       status: 'streaming',
     };
-    setMessages(prev => [...prev, assistantMsg]);
+    updateAndPersist(prev => [...prev, assistantMsg]);
 
-    const historyForGroq = messages
+    // Use messagesRef for latest messages including any pending updates
+    const historyForGroq = messagesRef.current
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
@@ -528,13 +556,25 @@ export function AIChatPanel({
       ],
       (chunk, done) => {
         accumulated += chunk;
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === assistantMsgId
-              ? { ...m, content: accumulated, status: done ? 'complete' : 'streaming' }
-              : m
-          )
-        );
+        if (done) {
+          // Final update - use updateAndPersist for immediate persistence
+          updateAndPersist(prev =>
+            prev.map(m =>
+              m.id === assistantMsgId
+                ? { ...m, content: accumulated, status: 'complete' }
+                : m
+            )
+          );
+        } else {
+          // Intermediate streaming update - use setMessages to avoid too many localStorage writes
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantMsgId
+                ? { ...m, content: accumulated, status: 'streaming' }
+                : m
+            )
+          );
+        }
       }
     );
   }, [projectId, workspaceId, messages]);
@@ -550,7 +590,10 @@ export function AIChatPanel({
       timestamp: Date.now(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    // IMMEDIATE persistence: compute new state, persist, then update React state
+    const newMessages = [...messages, userMessage];
+    persistMessages(newMessages); // Sync to localStorage immediately
+    setMessages(newMessages);
     setInput('');
     setIsSending(true);
 
@@ -568,11 +611,15 @@ export function AIChatPanel({
         content: `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: Date.now(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => {
+        const withError = [...prev, errorMessage];
+        persistMessages(withError);
+        return withError;
+      });
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending, onSendMessage, submitTask]);
+  }, [input, isSending, onSendMessage, submitTask, messages, persistMessages]);
 
   // Handle key press
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -588,7 +635,6 @@ export function AIChatPanel({
       groqClient.setApiKey(apiKeyInput.trim());
       setApiKeyInput('');
       setShowSettings(false);
-      setMessages(prev => [...prev]);
     }
   };
 
@@ -654,6 +700,24 @@ export function AIChatPanel({
 
       {/* Messages */}
       <div className={styles.messages}>
+        {/* Command Approval Requests */}
+        <CommandApprovalPanel
+          onCommandExecuted={(approvalId, output) => {
+            // Add command result as a system message
+            setMessages(prev => {
+              const withResult = [...prev, {
+                id: `cmd-result-${Date.now()}`,
+                role: 'assistant' as const,
+                content: `🔧 **Command Output:**\n\`\`\`\n${output}\n\`\`\``,
+                timestamp: Date.now(),
+                status: 'complete' as const,
+              }];
+              persistMessages(withResult);
+              return withResult;
+            });
+          }}
+        />
+
         {messages.map((message) => (
           <div
             key={message.id}

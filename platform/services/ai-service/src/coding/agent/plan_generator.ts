@@ -75,7 +75,7 @@ export class PlanGenerator {
 
     const response = await this.provider.complete(messages, {
       temperature: 0.3,
-      maxTokens: 2000,
+      maxTokens: 2200,
     });
 
     // Parse plan from response
@@ -120,7 +120,7 @@ export class PlanGenerator {
 
       const response = await this.provider.complete(messages, {
         temperature: 0.3,
-        maxTokens: 2000,
+        maxTokens: 2200,
       });
 
       currentPlan = this.parsePlan(response.content, prompt);
@@ -156,8 +156,7 @@ export class PlanGenerator {
 Analyze the user's request and create a structured plan with clear steps.
 
 ## Output Format
-Return a JSON object with this structure:
-\`\`\`json
+Return ONLY a compact JSON object with this structure:
 {
   "goal": "Clear description of what needs to be accomplished",
   "steps": [
@@ -176,7 +175,9 @@ Return a JSON object with this structure:
   "confidence": 0.0-1.0,
   "reasoning": "Why this plan is appropriate"
 }
-\`\`\`
+Do not wrap the JSON in markdown fences.
+Do not add commentary before or after the JSON.
+Keep "reasoning" brief (1-2 sentences).
 
 ## Rules
 1. Each step must have a clear, actionable description
@@ -186,7 +187,9 @@ Return a JSON object with this structure:
 5. Confidence reflects your certainty (0.0-1.0)
 6. Keep plans focused - max 10 steps
 7. Prefer modify_file over create_file when possible
-8. Order steps by dependency (independent first)`;
+8. Order steps by dependency (independent first)
+9. Keep step descriptions short (under 18 words when possible)
+10. Use at most 6 steps unless the task truly needs more`;
   }
 
   /**
@@ -254,11 +257,8 @@ Return an improved plan in the same JSON format.`;
    */
   private parsePlan(content: string, originalPrompt: string): CodePlan {
     try {
-      // Extract JSON from response
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-      const jsonContent = jsonMatch ? jsonMatch[1] : content;
-
-      const parsed = JSON.parse(jsonContent.trim());
+      const parsed = this.parsePlanJson(content);
+      const parsedSteps = parsed.steps as Array<Partial<PlanStep>>;
 
       // Validate required fields
       if (!parsed.goal || !Array.isArray(parsed.steps)) {
@@ -268,8 +268,8 @@ Return an improved plan in the same JSON format.`;
       // Build plan object
       const plan: CodePlan = {
         id: this.generatePlanId(),
-        goal: parsed.goal,
-        steps: parsed.steps.map((s: Partial<PlanStep>, index: number) => ({
+        goal: typeof parsed.goal === 'string' ? parsed.goal : originalPrompt,
+        steps: parsedSteps.map((s: Partial<PlanStep>, index: number) => ({
           step: s.step ?? index + 1,
           action: this.validateAction(s.action),
           file: s.file,
@@ -277,17 +277,16 @@ Return an improved plan in the same JSON format.`;
           dependencies: s.dependencies ?? [],
           estimatedComplexity: s.estimatedComplexity ?? 'medium',
         })),
-        affectedFiles: parsed.affectedFiles ?? [],
-        newFiles: parsed.newFiles ?? [],
-        deletedFiles: parsed.deletedFiles ?? [],
-        confidence: Math.min(1, Math.max(0, parsed.confidence ?? 0.5)),
-        reasoning: parsed.reasoning ?? '',
+        affectedFiles: this.parseStringArray(parsed.affectedFiles),
+        newFiles: this.parseStringArray(parsed.newFiles),
+        deletedFiles: this.parseStringArray(parsed.deletedFiles),
+        confidence: Math.min(1, Math.max(0, typeof parsed.confidence === 'number' ? parsed.confidence : 0.5)),
+        reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
         createdAt: new Date(),
       };
 
       return plan;
     } catch (error) {
-      // Return a minimal plan if parsing fails
       const message = error instanceof Error ? error.message : 'Unknown error';
       throw new PlanGenerationError(`Failed to parse plan: ${message}`, {
         goal: originalPrompt,
@@ -300,6 +299,233 @@ Return an improved plan in the same JSON format.`;
         createdAt: new Date(),
       });
     }
+  }
+
+  /**
+   * Parse JSON content from an LLM response with a few repair passes for
+   * models that wrap or truncate otherwise-valid JSON.
+   */
+  private parsePlanJson(content: string): Record<string, unknown> {
+    const candidates = this.extractJsonCandidates(content);
+    let lastError: Error | null = null;
+
+    for (const candidate of candidates) {
+      try {
+        return this.parseJsonCandidate(candidate);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown JSON parse error');
+      }
+    }
+
+    throw lastError ?? new Error('No JSON object found in model response');
+  }
+
+  /**
+   * Build candidate JSON payloads from raw model output.
+   */
+  private extractJsonCandidates(content: string): string[] {
+    const candidates = new Set<string>();
+    const trimmed = content.trim();
+
+    const addCandidate = (candidate?: string | null) => {
+      const normalized = this.normalizeJsonCandidate(candidate);
+      if (normalized) {
+        candidates.add(normalized);
+      }
+    };
+
+    addCandidate(trimmed);
+
+    for (const match of trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)) {
+      addCandidate(match[1]);
+    }
+
+    addCandidate(this.extractFirstJsonObject(trimmed));
+
+    const firstBraceIndex = trimmed.indexOf('{');
+    if (firstBraceIndex >= 0) {
+      addCandidate(trimmed.slice(firstBraceIndex));
+    }
+
+    return [...candidates];
+  }
+
+  /**
+   * Remove obvious markdown wrappers and leading labels.
+   */
+  private normalizeJsonCandidate(candidate?: string | null): string | null {
+    if (!candidate) {
+      return null;
+    }
+
+    let normalized = candidate.trim().replace(/^\uFEFF/, '');
+    normalized = normalized.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    normalized = normalized.replace(/^json\s*/i, '').trim();
+
+    return normalized || null;
+  }
+
+  /**
+   * Try a few increasingly-forgiving parse passes for a candidate string.
+   */
+  private parseJsonCandidate(candidate: string): Record<string, unknown> {
+    const attempts: string[] = [];
+    const seen = new Set<string>();
+
+    const addAttempt = (value?: string | null) => {
+      const normalized = this.normalizeJsonCandidate(value);
+      if (normalized && !seen.has(normalized)) {
+        seen.add(normalized);
+        attempts.push(normalized);
+      }
+    };
+
+    addAttempt(candidate);
+    addAttempt(this.extractFirstJsonObject(candidate));
+    addAttempt(this.stripTrailingCommas(candidate));
+
+    const repaired = this.repairTruncatedJson(candidate);
+    addAttempt(repaired);
+    addAttempt(this.extractFirstJsonObject(repaired));
+
+    let lastError: Error | null = null;
+
+    for (const attempt of attempts) {
+      try {
+        return JSON.parse(attempt) as Record<string, unknown>;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown JSON parse error');
+      }
+    }
+
+    throw lastError ?? new Error('Unable to parse JSON candidate');
+  }
+
+  /**
+   * Extract the first JSON object in a string. If the object is truncated,
+   * return everything from the first opening brace onward so a repair pass
+   * can close it.
+   */
+  private extractFirstJsonObject(content: string): string | null {
+    const start = content.indexOf('{');
+    if (start < 0) {
+      return null;
+    }
+
+    let inString = false;
+    let escaped = false;
+    const stack: string[] = [];
+
+    for (let index = start; index < content.length; index++) {
+      const char = content[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === '{') {
+        stack.push('}');
+      } else if (char === '[') {
+        stack.push(']');
+      } else if ((char === '}' || char === ']') && stack[stack.length - 1] === char) {
+        stack.pop();
+
+        if (stack.length === 0) {
+          return content.slice(start, index + 1);
+        }
+      }
+    }
+
+    return content.slice(start);
+  }
+
+  /**
+   * Repair common truncation issues like missing closing braces, dangling
+   * strings, and trailing commas before container endings.
+   */
+  private repairTruncatedJson(content: string): string {
+    let repaired = this.extractFirstJsonObject(content) ?? content;
+    repaired = this.normalizeJsonCandidate(repaired) ?? '';
+    repaired = this.stripTrailingCommas(repaired);
+
+    let inString = false;
+    let escaped = false;
+    const closers: string[] = [];
+    let output = '';
+
+    for (const char of repaired) {
+      output += char;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === '{') {
+        closers.push('}');
+      } else if (char === '[') {
+        closers.push(']');
+      } else if ((char === '}' || char === ']') && closers[closers.length - 1] === char) {
+        closers.pop();
+      }
+    }
+
+    if (inString) {
+      output += '"';
+    }
+
+    if (closers.length > 0) {
+      output += closers.reverse().join('');
+    }
+
+    return this.stripTrailingCommas(output);
+  }
+
+  /**
+   * Remove trailing commas before a closing brace or bracket.
+   */
+  private stripTrailingCommas(content: string): string {
+    return content.replace(/,\s*([}\]])/g, '$1');
+  }
+
+  /**
+   * Parse a JSON array into a string array, dropping any non-string entries.
+   */
+  private parseStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter((item): item is string => typeof item === 'string');
   }
 
   /**

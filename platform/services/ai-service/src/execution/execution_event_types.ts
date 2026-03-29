@@ -64,6 +64,7 @@ export enum ProgressEventType {
   AGENT_PLANNING = 'agent.planning',
   AGENT_GENERATING = 'agent.generating',
   AGENT_STEP = 'agent.step',
+  COMMAND_APPROVAL_REQUESTED = 'command.approval_requested',
 }
 
 /**

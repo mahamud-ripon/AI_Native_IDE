@@ -207,6 +207,7 @@ export async function executeTask(
       workspaceId,
       prompt: maskedPrompt,
       userId,
+      modelHint,
       mode: request.body.mode as any,
       routing: {
         complexity: taskComplexity,
@@ -283,6 +284,7 @@ export async function executeTaskSync(
 
   const maskedPrompt = maskSecrets(prompt);
   const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const modelHint = request.body.modelHint || request.body.model;
 
   try {
     const { getTaskOrchestrator } = await import('../coding/execution/task_orchestrator.js');
@@ -305,6 +307,7 @@ export async function executeTaskSync(
       workspaceId,
       prompt: maskedPrompt,
       userId,
+      modelHint,
       mode: request.body.mode as any,
       routing: {
         complexity: taskComplexity,

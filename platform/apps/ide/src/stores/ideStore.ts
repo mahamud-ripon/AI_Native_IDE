@@ -123,6 +123,15 @@ export interface GitFileStatus {
 export type ProjectType = 'browser' | 'cloud';
 
 export type TerminalConnectionState = 'offline' | 'connecting' | 'connected' | 'local';
+export type WebContainerRuntimeState =
+  | 'idle'
+  | 'booting'
+  | 'mounted'
+  | 'shell-ready'
+  | 'installing'
+  | 'running'
+  | 'unsupported'
+  | 'error';
 
 export interface TerminalSession {
   id: string;
@@ -171,6 +180,8 @@ interface IDEState {
   // Preview
   previewUrl: string;
   previewIsLoading: boolean;
+  runtimeStatus: WebContainerRuntimeState;
+  runtimeMessage: string | null;
 
   // Git
   gitStatus: GitFileStatus[];
@@ -225,6 +236,7 @@ interface IDEState {
   // Actions - Preview
   setPreviewUrl: (url: string) => void;
   setPreviewLoading: (loading: boolean) => void;
+  setRuntimeState: (status: WebContainerRuntimeState, message?: string | null) => void;
 
   // Actions - Git
   setGitStatus: (files: GitFileStatus[]) => void;
@@ -308,11 +320,13 @@ export const useIDEStore = create<IDEState>()(
         terminalOutput: [],
         previewUrl: 'http://localhost:5173',
         previewIsLoading: false,
+        runtimeStatus: 'idle',
+        runtimeMessage: null,
         gitStatus: [],
         currentBranch: 'main',
         gitIsLoading: false,
         pendingDiffs: new Map(),
-        projectType: 'browser',
+        projectType: 'cloud',
         terminalConnectionState: 'offline',
         isWorkspaceConnected: false,
         isAIConnected: false,
@@ -481,6 +495,10 @@ export const useIDEStore = create<IDEState>()(
           set({ previewIsLoading: loading });
         },
 
+        setRuntimeState: (status, message = null) => {
+          set({ runtimeStatus: status, runtimeMessage: message });
+        },
+
         // Git actions
         setGitStatus: (files) => {
           set({ gitStatus: files });
@@ -548,12 +566,16 @@ export const useIDEStore = create<IDEState>()(
               projectId,
               projectName,
               workspaceId,
-              projectType: projectType || 'browser',
+              projectType: projectType || 'cloud',
               openTabs: [],
               activeTabPath: null,
               selectedFilePath: null,
               fileContents: new Map(),
               terminalConnectionState: 'offline',
+              previewIsLoading: false,
+              previewUrl: '',
+              runtimeStatus: 'idle',
+              runtimeMessage: null,
             });
           } else {
             set({ projectId, projectName, workspaceId, projectType: projectType || get().projectType });

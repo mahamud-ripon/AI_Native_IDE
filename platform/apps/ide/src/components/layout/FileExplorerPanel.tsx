@@ -20,6 +20,7 @@ import {
 import { useIDEStore, ideEventBus, type FileNode } from '@/stores/ideStore';
 import { fileSystemClient, type FileEntry } from '@/api/fileSystemClient';
 import { workspaceSocket } from '@/services/workspaceSocket';
+import { deleteMountedPath, listMountedDirectory, readMountedFile, getRuntimeStatus } from '@/core/runtime/webcontainerManager';
 
 // Design tokens
 const colors = {
@@ -54,6 +55,17 @@ function fileEntriesToNodes(entries: FileEntry[]): FileNode[] {
     path: entry.path,
     isExpanded: false,
     children: entry.children ? fileEntriesToNodes(entry.children) : undefined,
+  }));
+}
+
+function mountedEntriesToNodes(entries: Awaited<ReturnType<typeof listMountedDirectory>>): FileNode[] {
+  return entries.map((entry, idx) => ({
+    id: `${entry.path}-${idx}`,
+    name: entry.name,
+    type: entry.type,
+    path: entry.path,
+    isExpanded: false,
+    children: entry.children ? mountedEntriesToNodes(entry.children) : undefined,
   }));
 }
 
@@ -173,6 +185,7 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
     fileTree,
     selectedFilePath,
     isFileTreeLoading,
+    runtimeStatus,
     setFileTree,
     toggleFileNode,
     openTab,
@@ -188,6 +201,38 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
     path: string;
     type: 'file' | 'directory';
   } | null>(null);
+  const refreshTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadTree = React.useCallback(async () => {
+    if (!projectId) return;
+
+    setFileTreeLoading(true);
+    try {
+      const runtime = getRuntimeStatus();
+      if (runtime.projectId === projectId && runtime.status !== 'idle' && runtime.status !== 'error' && runtime.status !== 'unsupported') {
+        const entries = await listMountedDirectory(projectId);
+        setFileTree(mountedEntriesToNodes(entries));
+      } else {
+        const entries = await fileSystemClient.listDirectory(projectId, '/');
+        setFileTree(fileEntriesToNodes(entries));
+      }
+    } catch {
+      setFileTree([]);
+    } finally {
+      setFileTreeLoading(false);
+    }
+  }, [projectId, setFileTree, setFileTreeLoading]);
+
+  const scheduleTreeRefresh = React.useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = setTimeout(() => {
+      loadTree();
+      refreshTimerRef.current = null;
+    }, 50);
+  }, [loadTree]);
 
   // Load file tree on mount - use ref to prevent duplicate requests
   const treeLoadedRef = React.useRef<string | null>(null);
@@ -195,15 +240,15 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
     if (!projectId || treeLoadedRef.current === projectId) return;
 
     treeLoadedRef.current = projectId;
-    setFileTreeLoading(true);
-    fileSystemClient.listDirectory(projectId, '/').then(entries => {
-      setFileTree(fileEntriesToNodes(entries));
-    }).catch(() => {
-      setFileTree([]);
-    }).finally(() => {
-      setFileTreeLoading(false);
-    });
-  }, [projectId]);
+    scheduleTreeRefresh();
+  }, [projectId, scheduleTreeRefresh]);
+
+  React.useEffect(() => {
+    if (!projectId) return;
+    if (runtimeStatus === 'mounted' || runtimeStatus === 'shell-ready' || runtimeStatus === 'running') {
+      scheduleTreeRefresh();
+    }
+  }, [projectId, runtimeStatus, scheduleTreeRefresh]);
 
   // Subscribe to workspace file events
   // bolt.new approach: All projects are cloud projects with UUID
@@ -227,9 +272,7 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
       ideEventBus.emit('workspace:fileEvent', { type: event.eventType, path: event.filePath || '' });
 
       if (event.eventType === 'file.created' || event.eventType === 'file.deleted') {
-        fileSystemClient.listDirectory(projectId, '/').then(entries => {
-          setFileTree(fileEntriesToNodes(entries));
-        });
+        scheduleTreeRefresh();
       }
     });
 
@@ -237,36 +280,47 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
       unsubscribe();
       wsConnectedRef.current = null;
     };
-  }, [projectId]);
+  }, [projectId, scheduleTreeRefresh]);
 
   // Subscribe to ideEventBus for AI-generated file events
   React.useEffect(() => {
     if (!projectId) return;
 
-    const onCreated = async () => {
-      try {
-        const entries = await fileSystemClient.listDirectory(projectId, '/');
-        setFileTree(fileEntriesToNodes(entries));
-      } catch { /* refresh failed, ignore */ }
+    const onRefresh = async () => {
+      scheduleTreeRefresh();
     };
 
-    const onChanged = async () => {
-      try {
-        const entries = await fileSystemClient.listDirectory(projectId, '/');
-        setFileTree(fileEntriesToNodes(entries));
-      } catch { /* refresh failed, ignore */ }
-    };
-
-    ideEventBus.on('file:created', onCreated);
-    ideEventBus.on('file:changed', onChanged);
+    ideEventBus.on('file:created', onRefresh);
+    ideEventBus.on('file:changed', onRefresh);
+    ideEventBus.on('file:deleted', onRefresh);
+    ideEventBus.on('tree:refresh', onRefresh);
 
     return () => {
-      ideEventBus.off('file:created', onCreated);
-      ideEventBus.off('file:changed', onChanged);
+      ideEventBus.off('file:created', onRefresh);
+      ideEventBus.off('file:changed', onRefresh);
+      ideEventBus.off('file:deleted', onRefresh);
+      ideEventBus.off('tree:refresh', onRefresh);
     };
-  }, [projectId]);
+  }, [projectId, scheduleTreeRefresh]);
+
+  React.useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleFileSelect = async (path: string) => {
+    const runtime = getRuntimeStatus();
+
+    if (runtime.projectId === projectId && runtime.status !== 'idle' && runtime.status !== 'error' && runtime.status !== 'unsupported') {
+      const content = await readMountedFile(projectId, path);
+      setFileContent(path, content);
+      openTab(path, content);
+      return;
+    }
+
     const content = await fileSystemClient.readFile(projectId, path);
     setFileContent(path, content.content);
     openTab(path, content.content);
@@ -279,10 +333,31 @@ export function FileExplorerPanel({ projectId }: FileExplorerPanelProps) {
 
   const handleDeleteFile = async () => {
     if (!contextMenu) return;
-    await fileSystemClient.deleteFile(projectId, contextMenu.path);
+
+    const result = await fileSystemClient.deleteFile(projectId, contextMenu.path);
+    if (!result.success) {
+      console.error('[FileExplorerPanel] Failed to delete path:', result.message);
+      setContextMenu(null);
+      return;
+    }
+
+    const runtime = getRuntimeStatus();
+    if (
+      runtime.projectId === projectId &&
+      runtime.status !== 'idle' &&
+      runtime.status !== 'booting' &&
+      runtime.status !== 'unsupported' &&
+      runtime.status !== 'error'
+    ) {
+      await deleteMountedPath(projectId, contextMenu.path).catch((error) => {
+        console.warn('[FileExplorerPanel] Failed to delete mounted path:', error);
+      });
+    }
+
+    ideEventBus.emit('file:deleted', { path: contextMenu.path });
+    ideEventBus.emit('tree:refresh', { path: contextMenu.path });
     setContextMenu(null);
-    const entries = await fileSystemClient.listDirectory(projectId, '/');
-    setFileTree(fileEntriesToNodes(entries));
+    await loadTree();
   };
 
   // Filter tree by search query

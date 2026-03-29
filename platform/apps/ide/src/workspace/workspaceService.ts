@@ -1,4 +1,4 @@
-import { workspaceFileRegistry, type WorkspaceFileEntry, addFilesToRegistry } from './fileRegistry';
+import type { WorkspaceFileEntry } from './fileRegistry';
 import { editorModelManager } from '../core/editor/modelManager';
 import { ensureContainer } from '../core/runtime/webcontainerManager';
 
@@ -142,11 +142,10 @@ class LocalWorkspaceService implements WorkspaceService {
       // Scan root directory
       await scanDir('');
       
-      // If no files found in WebContainer, fall back to registry
-      return files.length > 0 ? files : workspaceFileRegistry;
+      return files;
     } catch (e) {
-      console.warn('Failed to read WebContainer files, using registry:', e);
-      return workspaceFileRegistry;
+      console.warn('Failed to read WebContainer files:', e);
+      return [];
     }
   }
 
@@ -191,10 +190,10 @@ class LocalWorkspaceService implements WorkspaceService {
       
       await readDir('');
       
-      return Object.keys(files).length > 0 ? files : demoViteReactProjectFiles();
+      return files;
     } catch (e) {
-      console.warn('Failed to read WebContainer snapshot, using demo:', e);
-      return demoViteReactProjectFiles();
+      console.warn('Failed to read WebContainer snapshot:', e);
+      return {};
     }
   }
 
@@ -262,11 +261,9 @@ class LocalWorkspaceService implements WorkspaceService {
         language: languageMap[ext || ''] || 'plaintext'
       };
     } catch (e) {
-      console.warn('Failed to read from WebContainer, using demo:', e);
-      // Fallback to demo files
-      const files = demoViteReactProjectFiles();
+      console.warn('Failed to read from WebContainer:', e);
       return {
-        content: files[path] || files[path.substring(1)] || '',
+        content: '',
         language: 'plaintext'
       };
     }
@@ -290,8 +287,8 @@ class RemoteWorkspaceService implements WorkspaceService {
       });
       
       if (!response.ok) {
-        console.warn('Failed to fetch file tree, using demo');
-        return workspaceFileRegistry;
+        console.warn('Failed to fetch file tree');
+        return [];
       }
       
       const result = await response.json();
@@ -315,18 +312,33 @@ class RemoteWorkspaceService implements WorkspaceService {
         result.data.children.forEach((child: any) => flattenTree(child));
       }
       
-      return files.length > 0 ? files : workspaceFileRegistry;
+      return files;
     } catch (error) {
       console.error('Error fetching file tree:', error);
-      return workspaceFileRegistry;
+      return [];
     }
   }
 
   async getSnapshot(projectId: string): Promise<Record<string, string>> {
-    // For now, fall back to demo
-    // TODO: Implement batch file download
-    console.warn('getSnapshot not implemented for remote, using demo');
-    return demoViteReactProjectFiles();
+    try {
+      const response = await fetch(`${API_BASE}/projects/${projectId}/snapshot`, {
+        headers: this.getAuthHeaders(),
+      });
+
+      if (response.status === 404) {
+        return {};
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load snapshot: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      return result.data?.files || {};
+    } catch (error) {
+      console.error('Error loading project snapshot:', error);
+      return {};
+    }
   }
 
   async getFileContent(projectId: string, path: string): Promise<{ content: string; language?: string }> {

@@ -35,7 +35,7 @@ export const config = {
 
   heartbeat: {
     pingInterval: parseInt(process.env.PING_INTERVAL_MS || '30000', 10),
-    pingTimeout: parseInt(process.env.PING_TIMEOUT_MS || '90000', 10),
+    pingTimeout: parseInt(process.env.PING_TIMEOUT_MS || '120000', 10),
   },
 
   internalApiKey: requireEnv('INTERNAL_API_KEY'),

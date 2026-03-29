@@ -38,9 +38,7 @@ export const HeartbeatManager = {
         logger.warn({ connId, lastPing: connection.lastPing }, 'Connection timed out, closing');
 
         connection.ws.close(4002, 'Connection timeout');
-        ConnectionManager.handleDisconnect(connId).catch((err) => {
-          logger.error({ err, connId }, 'Error handling disconnect');
-        });
+        // handleDisconnect is called by socket.on('close') in app.ts — avoid duplicate
       }
     });
 

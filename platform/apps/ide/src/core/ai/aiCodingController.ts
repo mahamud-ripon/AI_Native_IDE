@@ -32,6 +32,7 @@ import { useExecutionStore } from '../../state/executionStore';
 import { useAIChatStore } from '../../state/aiChatStore';
 import { useIDEStore, FileNode, ideEventBus } from '../../stores/ideStore';
 import { logger } from '../../lib/logger';
+import { syncAiFilesFromBackend } from '../runtime/aiFileSync';
 
 // ========================================
 // HELPERS
@@ -777,7 +778,9 @@ class AICodingController {
             // re-fetches the tree from the API. This bypasses the unreliable
             // Kafka → Redis → WebSocket pipeline in development.
             if (filesModifiedList.length > 0) {
-              ideEventBus.emit('file:created', { path: filesModifiedList[0] ?? '' });
+              void syncAiFilesFromBackend(currentSession.projectId, filesModifiedList, {
+                event: 'created',
+              });
             }
           } else {
             // Failed / timeout / cancelled
@@ -839,10 +842,11 @@ class AICodingController {
         this.updateAssistantMessage(session, task);
         
         // Refresh file tree to ensure all changes are visible
-        task.filesModified.forEach(filePath => {
-          ideEventBus.emit('file:created', { path: filePath });
-        });
-        if (task.filesModified.length === 0) {
+        if (task.filesModified.length > 0) {
+          void syncAiFilesFromBackend(session.projectId, task.filesModified, {
+            event: 'created',
+          });
+        } else {
           ideEventBus.emit('tree:refresh', { path: '' });
         }
 

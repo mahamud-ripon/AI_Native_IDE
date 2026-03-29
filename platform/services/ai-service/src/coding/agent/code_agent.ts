@@ -20,11 +20,11 @@ import {
   AGENT_DEFAULTS,
   AgentExecutionError,
 } from './agent_types.js';
-import { PlanGenerator, setLLMProvider, getPlanGenerator } from './plan_generator.js';
-import { EditPlanner, getEditPlanner } from './edit_planner.js';
-import { PatchBuilder, GeneratedPatch, getPatchBuilder } from './patch_builder.js';
-import { VerificationEngine, getVerificationEngine } from './verification_engine.js';
-import { ToolRouter, getToolRouter } from './tool_router.js';
+import { PlanGenerator, createPlanGenerator } from './plan_generator.js';
+import { EditPlanner, createEditPlanner } from './edit_planner.js';
+import { PatchBuilder, GeneratedPatch, createPatchBuilder } from './patch_builder.js';
+import { VerificationEngine, createVerificationEngine } from './verification_engine.js';
+import { ToolRouter, createToolRouter } from './tool_router.js';
 import { WorkspaceFS } from '../workspace/workspace_fs.js';
 import { getContextBuilder } from '../context/project_context_builder.js';
 import { getCodeIndex } from '../retrieval/code_index.js';
@@ -56,17 +56,24 @@ export class CodeAgent {
   }) {
     this.config = { ...AGENT_DEFAULTS, ...options?.config } as Required<AgentConfig>;
 
-    // Set LLM provider if provided
-    if (options?.provider) {
-      setLLMProvider(options.provider);
-    }
-
-    // Initialize components
-    this.planGenerator = getPlanGenerator();
-    this.editPlanner = getEditPlanner();
-    this.patchBuilder = getPatchBuilder();
-    this.verificationEngine = getVerificationEngine();
-    this.toolRouter = getToolRouter();
+    // Initialize task-scoped components to avoid provider/workspace leakage
+    this.planGenerator = createPlanGenerator({
+      provider: options?.provider,
+      maxIterations: this.config.maxIterations,
+    });
+    this.editPlanner = createEditPlanner({
+      provider: options?.provider,
+    });
+    this.patchBuilder = createPatchBuilder({
+      provider: options?.provider,
+      workspace: options?.workspace,
+      maxPatchLines: this.config.maxPatchLines,
+    });
+    this.verificationEngine = createVerificationEngine({
+      workspace: options?.workspace,
+      maxPatchLines: this.config.maxPatchLines,
+    });
+    this.toolRouter = createToolRouter(options?.workspace);
 
     // Set workspace if provided
     if (options?.workspace) {
@@ -365,13 +372,15 @@ export class CodeAgent {
         // Check if file would be created
         const isNewFile = !patch.originalContent || patch.originalContent.length === 0;
 
-        // Apply via workspace
+        // Apply via workspace. We already have full target content, so direct writes
+        // are faster and more reliable than replaying generated diffs.
         if (isDelete) {
           await this.workspace.deleteFile(patch.path);
-        } else if (isNewFile) {
-          await this.workspace.writeFile(patch.path, patch.targetContent);
         } else {
-          await this.workspace.applyPatch(patch.patch);
+          await this.workspace.writeFile(patch.path, patch.targetContent, {
+            createDirectories: isNewFile,
+            overwrite: true,
+          });
         }
 
         results.push({ success: true, path: patch.path });

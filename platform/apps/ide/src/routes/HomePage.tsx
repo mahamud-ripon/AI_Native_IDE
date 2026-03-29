@@ -12,6 +12,21 @@ import { HomeSettingsModal } from '../components/layout/HomeSettingsModal';
 import { projectClient } from '../api/projectClient';
 import { cn } from '../lib/utils';
 import { SimpleTooltip } from '../components/ui/Tooltip';
+import { getAccessToken, clearTokens } from '../lib/auth';
+
+// JWT decoding utility (no library needed)
+function jwtDecode(token: string): any {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
 
 const SendIconSvg = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -84,6 +99,13 @@ const stats = [
   { num: '99.9', suffix: '%', label: 'Uptime SLA' },
 ];
 
+interface User {
+  id: string;
+  email: string;
+  username?: string;
+  role?: string;
+}
+
 export function HomePage() {
   const navigate = useNavigate();
   const [prompt, setPrompt] = React.useState('');
@@ -93,7 +115,37 @@ export function HomePage() {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = React.useState(false);
   const [activeLeftIcon, setActiveLeftIcon] = React.useState<string>('chat');
+  const [user, setUser] = React.useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
   const cursorGlowRef = React.useRef<HTMLDivElement>(null);
+
+  // Check auth status and fetch user on mount
+  React.useEffect(() => {
+    const token = getAccessToken();
+    if (token) {
+      setIsAuthenticated(true);
+      try {
+        const jwtData = jwtDecode(token);
+        if (jwtData) {
+          setUser({
+            id: jwtData.sub,
+            email: jwtData.email,
+            role: jwtData.role,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to decode JWT token:', error);
+      }
+    }
+  }, []);
+
+  // Handle sign out
+  const handleSignOut = () => {
+    clearTokens();
+    setUser(null);
+    setIsAuthenticated(false);
+    navigate('/login');
+  };
 
   React.useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -117,7 +169,7 @@ export function HomePage() {
 
     // bolt.new approach: Always create project in PostgreSQL with UUID
     // No "browser vs cloud" distinction - every project is a cloud project
-    const token = localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+    const token = getAccessToken();
     if (!token) {
       navigate(`/login?redirect=${encodeURIComponent('/')}&prompt=${encodeURIComponent(prompt.trim())}`);
       return;
@@ -156,6 +208,19 @@ export function HomePage() {
       setSidebarOpen(true);
     } else if (id === 'settings') {
       setSettingsModalOpen(true);
+    } else if (id === 'chat') {
+      // Chat requires auth - redirect to login if not authenticated
+      if (!isAuthenticated) {
+        navigate('/login');
+      }
+    }
+  };
+
+  const handleAccountIconClick = () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+    } else {
+      setSidebarOpen(true);
     }
   };
 
@@ -184,6 +249,8 @@ export function HomePage() {
         onSettings={() => setSettingsModalOpen(true)}
         onHelp={() => setSettingsModalOpen(true)}
         onSubscription={() => setSettingsModalOpen(true)}
+        onSignOut={handleSignOut}
+        user={user ? { email: user.email, initial: user.username?.[0]?.toUpperCase() || user.email[0]?.toUpperCase() || 'U' } : undefined}
       />
 
       {/* Left Icon Bar */}
@@ -269,15 +336,24 @@ export function HomePage() {
           <div className="h-4 w-px bg-[rgba(255,255,255,0.1)]" />
 
           {/* Account Icon */}
-          <SimpleTooltip content="Account" side="bottom">
+          <SimpleTooltip content={isAuthenticated ? "Account" : "Sign In"} side="bottom">
             <button
-              onMouseEnter={() => setSidebarOpen(true)}
-              className="w-10 h-10 rounded-full flex items-center justify-center bg-[#18181b] text-[#a1a1aa] hover:bg-[#27272a] hover:text-white transition-all"
+              onClick={handleAccountIconClick}
+              className={cn(
+                "w-10 h-10 rounded-full flex items-center justify-center transition-all font-semibold text-sm",
+                isAuthenticated
+                  ? "bg-gradient-to-br from-[#f97316] to-[#ea580c] text-white hover:opacity-90"
+                  : "bg-[#18181b] text-[#a1a1aa] hover:bg-[#27272a] hover:text-white"
+              )}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-              </svg>
+              {isAuthenticated
+                ? user?.username?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || "U"
+                : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                )}
             </button>
           </SimpleTooltip>
         </div>

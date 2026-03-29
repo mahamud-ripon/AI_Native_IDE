@@ -16,6 +16,8 @@ interface EmbeddingTask {
   path?: string;
 }
 
+const PROJECT_SERVICE_URL = process.env.PROJECT_SERVICE_URL || 'http://localhost:8002';
+
 export async function updateFileEmbedding(data: EmbeddingTask): Promise<void> {
   const { fileId, projectId } = data;
 
@@ -25,15 +27,38 @@ export async function updateFileEmbedding(data: EmbeddingTask): Promise<void> {
     // Get file content
     const file = await prisma.projectFile.findUnique({
       where: { id: fileId },
-      select: { inlineContent: true, path: true, language: true },
+      select: { inlineContent: true, s3Key: true, path: true, language: true },
     });
 
-    if (!file?.inlineContent) {
+    let content: string | null = null;
+
+    if (file?.inlineContent) {
+      content = file.inlineContent.toString('utf-8');
+    } else if (file?.s3Key) {
+      // Fetch from S3 via project-service
+      try {
+        const response = await fetch(
+          `${PROJECT_SERVICE_URL}/api/v1/projects/${projectId}/files/content?path=${encodeURIComponent(file.path)}`,
+          {
+            headers: {
+              'X-Internal-Api-Key': process.env.INTERNAL_API_KEY || '',
+            },
+          }
+        );
+        if (response.ok) {
+          content = await response.text();
+        } else {
+          logger.warn(`Failed to fetch S3 content for ${fileId}: ${response.status}`);
+        }
+      } catch (fetchErr: any) {
+        logger.warn(`Error fetching S3 content for ${fileId}: ${fetchErr.message}`);
+      }
+    }
+
+    if (!content) {
       logger.warn(`File ${fileId} has no content, skipping embedding`);
       return;
     }
-
-    const content = file.inlineContent.toString('utf-8');
 
     // Call search service to generate embedding
     const response = await fetch(`${SEARCH_SERVICE_URL}/embed`, {

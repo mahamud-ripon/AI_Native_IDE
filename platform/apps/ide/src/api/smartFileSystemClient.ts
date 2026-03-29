@@ -95,6 +95,24 @@ class SmartFileSystemClient {
     
     // Cloud project - use API
     const result = await apiClient.writeFile(projectId, filePath, content);
+    if (result.success) {
+      try {
+        const { getRuntimeStatus, writeMountedFile } = await import('@/core/runtime/webcontainerManager');
+        const runtime = getRuntimeStatus();
+        if (
+          runtime.projectId === projectId &&
+          runtime.status !== 'idle' &&
+          runtime.status !== 'booting' &&
+          runtime.status !== 'unsupported' &&
+          runtime.status !== 'error'
+        ) {
+          await writeMountedFile(projectId, filePath, content);
+        }
+      } catch (error) {
+        console.warn('[SmartFileSystemClient] Runtime write sync skipped:', error);
+      }
+    }
+
     return { success: result.success, error: result.message };
   }
 

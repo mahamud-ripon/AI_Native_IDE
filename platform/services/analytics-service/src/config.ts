@@ -1,7 +1,7 @@
 import { env } from '@workspace/config';
 
 export const config = {
-  port: parseInt(process.env.PORT || '8007'),
+  port: parseInt(process.env.PORT || '8011'),
   nodeEnv: env.NODE_ENV,
   databaseUrl: env.DATABASE_URL,
   redisUrl: env.REDIS_URL,

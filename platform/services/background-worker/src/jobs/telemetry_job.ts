@@ -72,14 +72,14 @@ export async function runTelemetryJob(): Promise<void> {
       const connectionResult = await prisma.$queryRaw`
         SELECT count(*) as count FROM pg_stat_activity WHERE state = 'active'
       `;
-      metrics.database!.activeConnections = (connectionResult as any)[0]?.count || 0;
+      metrics.database!.activeConnections = Number((connectionResult as any)[0]?.count) || 0;
 
       // Count slow queries (taking > 1 second)
       const slowQueryResult = await prisma.$queryRaw`
         SELECT count(*) as count FROM pg_stat_activity 
         WHERE state = 'active' AND now() - query_start > interval '1 second'
       `;
-      metrics.database!.slowQueries = (slowQueryResult as any)[0]?.count || 0;
+      metrics.database!.slowQueries = Number((slowQueryResult as any)[0]?.count) || 0;
     } catch (e: any) {
       logger.warn('Failed to collect DB metrics:', e.message);
     }

@@ -328,9 +328,8 @@ async function processTask(
 
       console.log(`[ExecutionWorker] Task ${taskId} completed successfully`);
 
-      // Files are already in S3 (RemoteWorkspaceFS writes directly via project-service API)
       if (result.agentResult?.filesChanged && result.agentResult.filesChanged.length > 0) {
-        console.log(`[ExecutionWorker] ${result.agentResult.filesChanged.length} files saved to S3 via project-service: ${result.agentResult.filesChanged.join(', ')}`);
+        console.log(`[ExecutionWorker] ${result.agentResult.filesChanged.length} files modified: ${result.agentResult.filesChanged.join(', ')}`);
       }
     } else if (result.status === 'timeout' || result.error?.code === 'TASK_TIMEOUT') {
       const error = result.error;

@@ -44,6 +44,7 @@ import { fileSystemClient } from '@/api/fileSystemClient';
 import { smartFileSystemClient } from '@/api/smartFileSystemClient';
 import { useExecutionStreamIntegration } from '@/hooks/useExecutionStreamIntegration';
 import { aiCodingController } from '@/core/ai/aiCodingController';
+import { subscribeRuntimeStatus } from '@/core/runtime/webcontainerManager';
 
 // Extracted components
 import { ChatPanel } from './ChatPanel';
@@ -106,11 +107,10 @@ interface HeaderProps {
   projectName: string;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  isConnected: boolean;
   currentBranch: string;
 }
 
-function IdeHeader({ projectName, viewMode, onViewModeChange, isConnected, currentBranch }: HeaderProps) {
+function IdeHeader({ projectName, viewMode, onViewModeChange, currentBranch }: HeaderProps) {
   return (
     <header
       className="flex items-center justify-between px-4 flex-shrink-0"
@@ -151,18 +151,6 @@ function IdeHeader({ projectName, viewMode, onViewModeChange, isConnected, curre
         >
           <GitBranch className="h-3 w-3" />
           <span>{currentBranch}</span>
-        </div>
-
-        {/* Connection status */}
-        <div
-          className="flex items-center gap-1"
-          style={{ fontSize: '11px', color: isConnected ? colors.successColor : colors.textMuted }}
-        >
-          <div
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: isConnected ? colors.successColor : colors.textMuted }}
-          />
-          <span>{isConnected ? 'Connected' : 'Offline'}</span>
         </div>
       </div>
 
@@ -438,17 +426,28 @@ function CodeEditorPanel({ projectId }: CodeEditorPanelProps) {
 
       // Debounced save - uses smart client to auto-detect browser/cloud
       clearTimeout((window as any).__saveTimeout);
+      const currentPath = activeTabPath;
       (window as any).__saveTimeout = setTimeout(async () => {
         setIsSaving(true);
-        await smartFileSystemClient.writeFile(
-          projectId, 
-          activeTabPath, 
-          value,
-          smartFileSystemClient.getProjectType()
-        );
-        markTabDirty(activeTabPath, false);
-        setIsSaving(false);
-        ideEventBus.emit('file:saved', { path: activeTabPath, content: value });
+        try {
+          const result = await smartFileSystemClient.writeFile(
+            projectId,
+            currentPath,
+            value,
+            smartFileSystemClient.getProjectType()
+          );
+
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to save file');
+          }
+
+          markTabDirty(currentPath, false);
+          ideEventBus.emit('file:saved', { path: currentPath, content: value });
+        } catch (error) {
+          logger.error('[IdeShell] Failed to save editor content:', error);
+        } finally {
+          setIsSaving(false);
+        }
       }, 1000);
     },
     [activeTabPath, projectId]
@@ -739,11 +738,13 @@ export function IdeShell({
     setViewMode,
     bottomPanelTab,
     setBottomPanelTab,
-    isWorkspaceConnected,
     currentBranch,
     setProject,
     openTab,
     setFileContent,
+    setRuntimeState,
+    setPreviewUrl,
+    setPreviewLoading,
   } = useIDEStore();
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = React.useState(false);
@@ -762,6 +763,14 @@ export function IdeShell({
   React.useEffect(() => {
     setProject(projectId, projectName, workspaceId, projectType);
   }, [projectId, projectName, workspaceId, projectType]);
+
+  React.useEffect(() => {
+    return subscribeRuntimeStatus((snapshot) => {
+      setRuntimeState(snapshot.status, snapshot.message);
+      setPreviewUrl(snapshot.previewUrl);
+      setPreviewLoading(snapshot.status === 'booting' || snapshot.status === 'installing');
+    });
+  }, [setPreviewLoading, setPreviewUrl, setRuntimeState]);
 
   // Initialize execution stream integration
   useExecutionStreamIntegration({
@@ -841,7 +850,6 @@ export function IdeShell({
         projectName={projectName}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        isConnected={isWorkspaceConnected}
         currentBranch={currentBranch}
       />
 
@@ -899,7 +907,6 @@ export function IdeShell({
                 projectId={projectId}
                 activeTab={bottomPanelTab}
                 onTabChange={setBottomPanelTab}
-                projectType={projectType}
               />
             </ErrorBoundary>
           )}

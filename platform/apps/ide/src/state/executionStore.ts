@@ -141,6 +141,16 @@ export interface PatchHunk {
   type: 'add' | 'delete' | 'context';
 }
 
+export interface CommandApproval {
+  id: string;
+  taskId: string;
+  command: string;
+  agentName: string;
+  riskLevel: 'safe' | 'moderate' | 'dangerous';
+  status: 'pending' | 'approved' | 'denied';
+  createdAt: number;
+}
+
 // ========================================
 // STORE STATE
 // ========================================
@@ -167,6 +177,10 @@ interface ExecutionState {
   // Patch previews
   patchPreviews: Map<string, PatchPreview>;
   pendingPatches: string[]; // Patch IDs awaiting user action
+
+  // Command approvals
+  commandApprovals: Map<string, CommandApproval>;
+  pendingCommandApprovals: string[]; // Approval IDs awaiting user action
 
   // Connection status
   isConnected: boolean;
@@ -198,6 +212,12 @@ interface ExecutionState {
   removePatchPreview: (patchId: string) => void;
   clearPatchPreviews: (taskId: string) => void;
 
+  // Actions - Command Approvals
+  addCommandApproval: (approval: CommandApproval) => void;
+  approveCommand: (approvalId: string) => void;
+  denyCommand: (approvalId: string) => void;
+  removeCommandApproval: (approvalId: string) => void;
+
   // Actions - Connection
   setConnectionStatus: (status: ExecutionState['connectionStatus']) => void;
 
@@ -213,6 +233,7 @@ interface ExecutionState {
   getLatestEvent: (taskId: string) => ExecutionEvent | undefined;
   getPendingPatches: () => PatchPreview[];
   getTaskPatches: (taskId: string) => PatchPreview[];
+  getPendingCommandApprovals: () => CommandApproval[];
 }
 
 // ========================================
@@ -227,6 +248,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   events: new Map(),
   patchPreviews: new Map(),
   pendingPatches: [],
+  commandApprovals: new Map(),
+  pendingCommandApprovals: [],
   isConnected: false,
   connectionStatus: 'disconnected',
   retentionStats: {
@@ -465,6 +488,59 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     });
   },
 
+  // Command approval actions
+  addCommandApproval: (approval) => {
+    set((state) => {
+      const newApprovals = new Map(state.commandApprovals);
+      newApprovals.set(approval.id, approval);
+      return {
+        commandApprovals: newApprovals,
+        pendingCommandApprovals: approval.status === 'pending'
+          ? [...state.pendingCommandApprovals.filter(id => id !== approval.id), approval.id]
+          : state.pendingCommandApprovals,
+      };
+    });
+  },
+
+  approveCommand: (approvalId) => {
+    set((state) => {
+      const approval = state.commandApprovals.get(approvalId);
+      if (!approval || approval.status !== 'pending') return state;
+
+      const newApprovals = new Map(state.commandApprovals);
+      newApprovals.set(approvalId, { ...approval, status: 'approved' });
+      return {
+        commandApprovals: newApprovals,
+        pendingCommandApprovals: state.pendingCommandApprovals.filter(id => id !== approvalId),
+      };
+    });
+  },
+
+  denyCommand: (approvalId) => {
+    set((state) => {
+      const approval = state.commandApprovals.get(approvalId);
+      if (!approval || approval.status !== 'pending') return state;
+
+      const newApprovals = new Map(state.commandApprovals);
+      newApprovals.set(approvalId, { ...approval, status: 'denied' });
+      return {
+        commandApprovals: newApprovals,
+        pendingCommandApprovals: state.pendingCommandApprovals.filter(id => id !== approvalId),
+      };
+    });
+  },
+
+  removeCommandApproval: (approvalId) => {
+    set((state) => {
+      const newApprovals = new Map(state.commandApprovals);
+      newApprovals.delete(approvalId);
+      return {
+        commandApprovals: newApprovals,
+        pendingCommandApprovals: state.pendingCommandApprovals.filter(id => id !== approvalId),
+      };
+    });
+  },
+
   // Connection actions
   setConnectionStatus: (status) => {
     set({
@@ -504,6 +580,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   getTaskPatches: (taskId) => {
     const patches = get().patchPreviews;
     return [...patches.values()].filter(p => p.taskId === taskId);
+  },
+
+  getPendingCommandApprovals: () => {
+    const state = get();
+    return state.pendingCommandApprovals
+      .map(id => state.commandApprovals.get(id))
+      .filter((a): a is CommandApproval => a !== undefined);
   },
 
   // Retention actions

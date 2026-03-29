@@ -18,6 +18,7 @@
 import { groqClient } from './groqClient';
 import { editorContextService } from './editorContextService';
 import { useIDEStore, ideEventBus } from '../stores/ideStore';
+import { syncAiFileContent } from '../core/runtime/aiFileSync';
 
 // ========================================
 // TYPES
@@ -525,6 +526,11 @@ class AIOrchestrator {
         ideEventBus.emit('file:created', { path: file.path });
 
         // 6. Attempt backend persistence (upsert — works for new AND existing files)
+        await syncAiFileContent(options.projectId, file.path, file.content, {
+          event: 'created',
+          updateStore: false,
+        });
+
         let saved = false;
         try {
           const { fileSystemClient } = await import('../api/fileSystemClient');
@@ -532,6 +538,10 @@ class AIOrchestrator {
             { path: file.path, content: file.content },
           ]);
           saved = true;
+          await syncAiFileContent(options.projectId, file.path, file.content, {
+            event: 'created',
+            updateStore: false,
+          });
         } catch {
           // Backend unavailable — file lives only in-memory for this session
         }

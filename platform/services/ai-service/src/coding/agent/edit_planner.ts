@@ -40,14 +40,13 @@ export class EditPlanner {
     context: ProjectContext
   ): Promise<EditPlan> {
     const edits: FileEditPlan[] = [];
+    const fileSteps = this.combineFileModificationSteps(plan.steps);
 
     // Process each step that involves file modification
-    for (const step of plan.steps) {
-      if (this.isFileModificationStep(step)) {
-        const edit = await this.planStepEdit(step, plan, context);
-        if (edit) {
-          edits.push(edit);
-        }
+    for (const step of fileSteps) {
+      const edit = await this.planStepEdit(step, plan, context);
+      if (edit) {
+        edits.push(edit);
       }
     }
 
@@ -78,7 +77,7 @@ export class EditPlanner {
     const operation = this.getOperationFromAction(step.action);
 
     // Gather context chunks for the file
-    const contextChunks = await this.gatherContextChunks(step, plan, context);
+    const contextChunks = await this.gatherContextChunks(step, plan, context, operation);
 
     // Get original content if modifying
     let originalContent: string | undefined;
@@ -90,7 +89,7 @@ export class EditPlanner {
     const instructions = await this.generateEditInstructions(
       step,
       plan,
-      context,
+      operation,
       contextChunks
     );
 
@@ -110,37 +109,43 @@ export class EditPlanner {
   private async gatherContextChunks(
     step: PlanStep,
     plan: CodePlan,
-    context: ProjectContext
+    context: ProjectContext,
+    operation: EditOperation
   ): Promise<CodeChunk[]> {
+    if (operation === 'delete') {
+      return [];
+    }
+
     const chunks: CodeChunk[] = [];
 
     // 1. Get chunks from relevant files in context
-    for (const file of context.relevantFiles.slice(0, 3)) {
-      if (file.path === step.file) {
-        // This is the target file - include its content
-        const content = await this.getFileContent(file.path, context);
-        if (content) {
-          chunks.push({
-            id: `context-${file.path}`,
-            path: file.path,
-            content: content.slice(0, 2000), // Limit size
-            type: 'block',
-            name: file.path.split('/').pop() || file.path,
-            startLine: 1,
-            endLine: content.split('\n').length,
-            language: context.language || 'unknown',
-            embeddingStatus: 'pending',
-            hash: '',
-            metadata: { exports: [], imports: [], dependencies: [] },
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
+    const candidateFiles = operation === 'create'
+      ? context.relevantFiles.slice(0, 2)
+      : context.relevantFiles.filter(file => file.path === step.file).slice(0, 1);
+
+    for (const file of candidateFiles) {
+      const content = await this.getFileContent(file.path, context);
+      if (content) {
+        chunks.push({
+          id: `context-${file.path}`,
+          path: file.path,
+          content: content.slice(0, 1200),
+          type: 'block',
+          name: file.path.split('/').pop() || file.path,
+          startLine: 1,
+          endLine: content.split('\n').length,
+          language: context.language || 'unknown',
+          embeddingStatus: 'pending',
+          hash: '',
+          metadata: { exports: [], imports: [], dependencies: [] },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       }
     }
 
-    // 2. Search for related code
-    if (this.provider) {
+    // 2. Search for related code when modifying existing files
+    if (this.provider && operation === 'modify') {
       try {
         const searchOptions: SearchOptions = {
           mode: 'hybrid',
@@ -172,11 +177,15 @@ export class EditPlanner {
   private async generateEditInstructions(
     step: PlanStep,
     plan: CodePlan,
-    context: ProjectContext,
+    operation: EditOperation,
     contextChunks: CodeChunk[]
   ): Promise<string> {
-    // If no LLM provider, use step description as instructions
-    if (!this.provider) {
+    if (this.shouldUseDirectInstructions(step, operation)) {
+      return step.description;
+    }
+
+    const provider = this.provider;
+    if (!provider) {
       return step.description;
     }
 
@@ -203,11 +212,10 @@ ${step.file}
 ${step.action}
 
 ## Context Code
-${contextChunks.map(c => `### ${c.path}:${c.startLine}-${c.endLine}\n\`\`\`\n${c.content.slice(0, 500)}\n\`\`\`\n`).join('\n')}
-
-## Project Context
-- Language: ${context.language}
-- Framework: ${context.framework?.name || 'none'}
+${contextChunks
+  .slice(0, 3)
+  .map(c => `### ${c.path}:${c.startLine}-${c.endLine}\n\`\`\`\n${c.content.slice(0, 350)}\n\`\`\`\n`)
+  .join('\n')}
 
 Generate edit instructions for this file.`;
 
@@ -217,9 +225,9 @@ Generate edit instructions for this file.`;
     ];
 
     try {
-      const response = await this.provider.complete(messages, {
+      const response = await provider.complete(messages, {
         temperature: 0.2,
-        maxTokens: 1000,
+        maxTokens: 700,
       });
 
       return response.content;
@@ -259,6 +267,121 @@ Generate edit instructions for this file.`;
    */
   private isFileModificationStep(step: PlanStep): boolean {
     return ['create_file', 'modify_file', 'delete_file', 'rename_file'].includes(step.action);
+  }
+
+  /**
+   * Collapse multiple plan steps that touch the same file into one edit-plan step.
+   */
+  private combineFileModificationSteps(steps: PlanStep[]): PlanStep[] {
+    const combined = new Map<string, PlanStep>();
+    const passthrough: PlanStep[] = [];
+
+    for (const step of steps) {
+      if (!this.isFileModificationStep(step)) {
+        continue;
+      }
+
+      if (!step.file) {
+        passthrough.push(step);
+        continue;
+      }
+
+      const existing = combined.get(step.file);
+      if (!existing) {
+        combined.set(step.file, {
+          ...step,
+          dependencies: [...(step.dependencies ?? [])],
+        });
+        continue;
+      }
+
+      existing.action = this.mergeAction(existing.action, step.action);
+      existing.step = Math.min(existing.step, step.step);
+      existing.description = this.mergeDescriptions(existing.description, step.description);
+      existing.dependencies = this.mergeDependencies(existing.dependencies, step.dependencies);
+      existing.estimatedComplexity = this.mergeComplexity(
+        existing.estimatedComplexity,
+        step.estimatedComplexity,
+      );
+    }
+
+    return [...combined.values(), ...passthrough].sort((a, b) => a.step - b.step);
+  }
+
+  private mergeAction(current: PlanStep['action'], incoming: PlanStep['action']): PlanStep['action'] {
+    const priority: Record<PlanStep['action'], number> = {
+      delete_file: 4,
+      rename_file: 3,
+      create_file: 2,
+      modify_file: 1,
+      search_code: 0,
+      read_file: 0,
+    };
+
+    return priority[incoming] > priority[current] ? incoming : current;
+  }
+
+  private mergeDescriptions(current: string, incoming: string): string {
+    const unique = Array.from(
+      new Set(
+        [current, incoming]
+          .flatMap(description => description.split('\n'))
+          .map(description => description.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (unique.length <= 1) {
+      return unique[0] ?? current;
+    }
+
+    return unique.map((description, index) => `${index + 1}. ${description}`).join('\n');
+  }
+
+  private mergeDependencies(
+    current?: number[],
+    incoming?: number[],
+  ): number[] {
+    return Array.from(new Set([...(current ?? []), ...(incoming ?? [])])).sort((a, b) => a - b);
+  }
+
+  private mergeComplexity(
+    current?: PlanStep['estimatedComplexity'],
+    incoming?: PlanStep['estimatedComplexity'],
+  ): PlanStep['estimatedComplexity'] {
+    const weight: Record<NonNullable<PlanStep['estimatedComplexity']>, number> = {
+      low: 1,
+      medium: 2,
+      high: 3,
+    };
+
+    if (!current) {
+      return incoming;
+    }
+
+    if (!incoming) {
+      return current;
+    }
+
+    return weight[incoming] > weight[current] ? incoming : current;
+  }
+
+  private shouldUseDirectInstructions(step: PlanStep, operation: EditOperation): boolean {
+    if (!this.provider) {
+      return true;
+    }
+
+    if (operation === 'delete' || operation === 'rename') {
+      return true;
+    }
+
+    if (operation === 'create') {
+      return step.estimatedComplexity !== 'high';
+    }
+
+    return step.estimatedComplexity === 'low'
+      && !step.description.includes('\n')
+      && step.description.length <= 180;
   }
 
   /**
